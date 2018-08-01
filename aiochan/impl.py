@@ -54,7 +54,7 @@ class Chan:
                 taker = self._takes.popleft()
                 if taker.active:
                     ret = taker.commit()
-                    val = self._buf.remove()
+                    val = self._buf.take()
                     take_cbs.append((ret, val))
             for ret, val in take_cbs:
                 _dispatch(ret, val)
@@ -93,7 +93,7 @@ class Chan:
         # buffer has content
         if self._buf and not self._buf.empty:
             handler.commit()
-            val = self._buf.remove()
+            val = self._buf.take()
             cbs = []
             if len(self._puts):
                 while True:
@@ -130,7 +130,7 @@ class Chan:
         if self._closed:
             if handler.active and handler.commit():
                 if self._buf and not self._buf.empty:
-                    val = self._buf.remove()
+                    val = self._buf.take()
                 else:
                     val = None
                 return Box(val)
@@ -161,7 +161,7 @@ class Chan:
                 if taker.active:
                     take_cb = taker.commit()
                     if self._buf and not self._buf.empty:
-                        val = self._buf.remove()
+                        val = self._buf.take()
                     else:
                         val = None
                     _dispatch(take_cb, val)
@@ -169,6 +169,11 @@ class Chan:
                 break
 
     # non-core methods
+
+    def offer(self, val):
+        ret = self._put(val, _Handler(_nop, False))
+        if ret:
+            return ret.val
 
     def put_nowait(self, val, cb=None):
         ''' Asynchronously puts a `val` into channel, calling `cb` (if supplied)
@@ -227,11 +232,6 @@ class Chan:
             ft.set_result(ret.val)
 
         return ft
-
-    def offer(self, val):
-        ret = self._put(val, _Handler(_nop, False))
-        if ret:
-            return ret.val
 
     def poll(self):
         ret = self._get(_Handler(_nop, False))
@@ -537,7 +537,7 @@ def select(*chan_ops, priority=False, default=None):
     def deliver(r):
         ft.set_result(r)
 
-    ret = _alts(deliver, ports, priority=priority, default=default)
+    ret = _alts(deliver, chan_ops, priority=priority, default=default)
     if ret:
         ft = asyncio.Future()
         ft.set_result(ret.val)
