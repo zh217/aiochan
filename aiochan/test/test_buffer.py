@@ -29,6 +29,8 @@ def test_fixed_buffer():
     assert buffer.can_add
     assert not buffer.can_take
 
+    assert buffer.__repr__()
+
 
 def test_dropping_buffer():
     buffer = DroppingBuffer(2)
@@ -53,6 +55,8 @@ def test_dropping_buffer():
     assert buffer.can_add
     assert not buffer.can_take
 
+    assert buffer.__repr__()
+
 
 def test_sliding_buffer():
     buffer = SlidingBuffer(2)
@@ -76,3 +80,28 @@ def test_sliding_buffer():
 
     assert buffer.can_add
     assert not buffer.can_take
+
+    assert buffer.__repr__()
+
+
+def test_promise_buffer():
+    buffer = PromiseBuffer(None)
+
+    assert buffer.can_add
+    assert not buffer.can_take
+
+    buffer.add(1)
+
+    assert buffer.can_add
+    assert buffer.can_take
+
+    assert buffer.take() == 1
+
+    buffer.add(2)
+
+    assert buffer.can_add
+    assert buffer.can_take
+
+    assert buffer.take() == 1
+
+    assert buffer.__repr__()
