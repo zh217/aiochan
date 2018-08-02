@@ -56,6 +56,12 @@ class Chan:
         else:
             self._loop.call_soon(functools.partial(f, value))
 
+    def _clean_gets(self):
+        self._gets = collections.deque(g for g in self._gets if g.active)
+
+    def _clean_puts(self):
+        self._puts = collections.deque(p for p in self._puts if p.handler.active)
+
     def _put(self, val, handler: Handler):
         if val is None:
             raise TypeError('Cannot put None on a channel')
@@ -91,8 +97,11 @@ class Chan:
 
         # case 3: no buffer, no pending getter, queue put op if put is blockable
         if handler.blockable:
-            assert len(self._puts) < MAX_OP_QUEUE_SIZE, f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
-                                                        'allowed on a single channel. Consider using a windowed buffer.'
+            if len(self._puts) == MAX_OP_QUEUE_SIZE:
+                self._clean_puts()
+                assert len(self._puts) < MAX_OP_QUEUE_SIZE, \
+                    f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
+                    f'allowed on a single channel. Consider using a windowed buffer.'
             self._puts.append(PutBox(handler, val))
             return None
 
@@ -172,8 +181,11 @@ class Chan:
 
         # case 3: cannot deal with taker immediately: queue if blockable
         if handler.blockable:
-            assert len(self._gets) < MAX_OP_QUEUE_SIZE, f'No more than {MAX_OP_QUEUE_SIZE} pending gets ' + \
-                                                        'are allowed on a single channel'
+            if len(self._gets) == MAX_OP_QUEUE_SIZE:
+                self._clean_gets()
+                assert len(self._gets) < MAX_OP_QUEUE_SIZE, \
+                    f'No more than {MAX_OP_QUEUE_SIZE} pending gets ' + \
+                    f'are allowed on a single channel'
             self._puts.append(handler)
             return None
 
