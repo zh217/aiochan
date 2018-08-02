@@ -1,27 +1,5 @@
-import collections
-import abc
-
-Box = collections.namedtuple('Box', 'val')
-PutBox = collections.namedtuple('PutBox', 'handler val')
-
-
-class Handler(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def active(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def blockable(self):
-        pass
-
-    @abc.abstractmethod
-    def commit(self):
-        pass
-
-
-class FnHandler(Handler):
+class FnHandler:
+    __slots__ = ('_f', '_blockable')
     active = True
 
     @property
@@ -37,6 +15,8 @@ class FnHandler(Handler):
 
 
 class SelectFlag:
+    __slots__ = ('active',)
+
     def __init__(self):
         self.active = True
 
@@ -44,7 +24,8 @@ class SelectFlag:
         self.active = False
 
 
-class SelectHandler(Handler):
+class SelectHandler:
+    __slots__ = ('_f', '_flag')
     blockable = True
 
     def __init__(self, f, flag):

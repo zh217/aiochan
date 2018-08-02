@@ -4,20 +4,18 @@ import numbers
 import random
 import functools
 from . import buffers
-from .util import Box, PutBox, Handler, FnHandler, SelectFlag, SelectHandler
+from .util import FnHandler, SelectFlag, SelectHandler
 
 _buf_types = {'f': buffers.FixedLengthBuffer,
-              'fixed': buffers.FixedLengthBuffer,
               'd': buffers.DroppingBuffer,
-              'dropping': buffers.DroppingBuffer,
-              's': buffers.SlidingBuffer,
-              'sliding': buffers.SlidingBuffer,
-              None: buffers.EmptyBuffer}
+              's': buffers.SlidingBuffer}
 
 MAX_OP_QUEUE_SIZE = 1024
 
 
 class Chan:
+    __slots__ = ('_loop', '_buf', '_gets', '_puts', '_closed')
+
     def __init__(self, buffer=None, buffer_size=None, *, loop=None):
         self._loop = loop or asyncio.get_event_loop()
         try:
@@ -31,14 +29,6 @@ class Chan:
         self._gets = collections.deque()
         self._puts = collections.deque()
         self._closed = asyncio.Event(loop=self._loop)
-
-    @property
-    def _can_get(self):
-        return bool(self._gets)
-
-    @property
-    def _can_put(self):
-        return bool(self._puts)
 
     @property
     def closed(self):
@@ -58,24 +48,25 @@ class Chan:
         self._gets = collections.deque(g for g in self._gets if g.active)
 
     def _clean_puts(self):
-        self._puts = collections.deque(p for p in self._puts if p.handler.active)
+        self._puts = collections.deque(p for p in self._puts if p[0].active)
 
-    def _put(self, val, handler: Handler):
+    # noinspection PyRedundantParentheses
+    def _put(self, val, handler):
         if val is None:
             raise TypeError('Cannot put None on a channel')
 
         if self.closed or not handler.active:
-            return Box(not self.closed)
+            return (not self.closed,)
 
         # case 1: buffer available, and current buffer and then drain buffer
-        if self._buf.can_add:
+        if self._buf and self._buf.can_add:
             handler.commit()
             self._buf.add(val)
-            while self._can_get and self._buf.can_take:
+            while self._gets and self._buf.can_take:
                 getter = self._gets.popleft()
                 if getter.active:
                     self._dispatch(getter.commit(), self._buf.take())
-            return Box(True)
+            return (True,)
 
         getter = None
         while True:
@@ -91,7 +82,7 @@ class Chan:
         if getter is not None:
             handler.commit()
             self._dispatch(getter.commit(), val)
-            return Box(True)
+            return (True,)
 
         # case 3: no buffer, no pending getter, queue put op if put is blockable
         if handler.blockable:
@@ -100,7 +91,7 @@ class Chan:
                 assert len(self._puts) < MAX_OP_QUEUE_SIZE, \
                     f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
                     f'allowed on a single channel. Consider using a windowed buffer.'
-            self._puts.append(PutBox(handler, val))
+            self._puts.append((handler, val))
             return None
 
     def put_nowait(self, val, cb=None, *, immediate_only=True):
@@ -116,7 +107,7 @@ class Chan:
             assert cb is None, 'cb must be None if immediate_only is True'
             ret = self._put(val, FnHandler(None, blockable=False))
             if ret:
-                return ret.val
+                return ret[0]
             else:
                 return None
 
@@ -125,8 +116,8 @@ class Chan:
             return None
 
         if cb is not None:
-            self._dispatch(cb, ret.val)
-        return ret.val
+            self._dispatch(cb, ret[0])
+        return ret[0]
 
     def put(self, val):
         """
@@ -138,34 +129,35 @@ class Chan:
         ft = self._loop.create_future()
         ret = self._put(val, FnHandler(ft, blockable=True))
         if ret is not None:
-            ft.set_result(ret.val)
+            ft.set_result(ret[0])
         return ft
 
-    def _get(self, handler: Handler):
+    # noinspection PyRedundantParentheses
+    def _get(self, handler):
         if not handler.active:
             return None
         elif self.closed:
-            return Box(None)
+            return (None,)
 
         # case 1: buffer has content, return buffered value and drain puts queue
-        if self._buf.can_take:
+        if self._buf and self._buf.can_take:
             handler.commit()
             val = self._buf.take()
             while self._buf.can_add:
                 try:
                     putter = self._puts.popleft()
-                    if putter.handler.active:
-                        self._buf.add(putter.val)
+                    if putter[0].active:
+                        self._buf.add(putter[1])
                         self._dispatch(handler.commit(), True)
                 except IndexError:
                     break
-            return Box(val)
+            return (val,)
 
         putter = None
         while True:
             try:
                 p = self._puts.popleft()
-                if p.handler.active:
+                if p[0].active:
                     putter = p
                     break
             except IndexError:
@@ -174,8 +166,8 @@ class Chan:
         # case 2: we have a putter immediately available
         if putter is not None:
             handler.commit()
-            self._dispatch(putter.handler.commit(), True)
-            return Box(putter.val)
+            self._dispatch(putter[0].commit(), True)
+            return (putter[1],)
 
         # case 3: cannot deal with taker immediately: queue if blockable
         if handler.blockable:
@@ -201,7 +193,7 @@ class Chan:
             assert cb is None, 'cb must be None if immediate_only is True'
             ret = self._get(FnHandler(None, blockable=False))
             if ret:
-                return ret.val
+                return ret[0]
             else:
                 return None
 
@@ -209,8 +201,8 @@ class Chan:
 
         if ret is not None:
             if cb is not None:
-                self._dispatch(cb, ret.val)
-            return ret.val
+                self._dispatch(cb, ret[0])
+            return ret[0]
 
         return None
 
@@ -222,7 +214,7 @@ class Chan:
         ft = self._loop.create_future()
         ret = self._get(FnHandler(ft, blockable=True))
         if ret is not None:
-            ft.set_result(ret.val)
+            ft.set_result(ret[0])
         return ft
 
     def close(self):
@@ -232,7 +224,7 @@ class Chan:
             try:
                 getter = self._gets.popleft()
                 if getter.active:
-                    val = self._buf.take() if self._buf.can_take else None
+                    val = self._buf.take() if self._buf and self._buf.can_take else None
                     self._dispatch(getter.commit(), val)
             except IndexError:
                 break
@@ -378,14 +370,15 @@ def select(*chan_ops, priority=False, default=None, loop=None):
             chan = chan_op
             r = chan._get(SelectHandler(lambda v: ft.set_result(SelectResult(v, chan)), flag))
             if r is not None:
-                ret = SelectResult(r.val, chan)
+                ret = SelectResult(r[0], chan)
                 break
         else:
             # putting
             chan, val = chan_op
+            # noinspection PyProtectedMember
             r = chan._put(val, SelectHandler(lambda v: ft.set_result(SelectResult(v, chan)), flag))
             if r is not None:
-                ret = SelectResult(r.val, chan)
+                ret = SelectResult(r[0], chan)
                 break
     if ret:
         ft.set_result(ret)
@@ -413,6 +406,7 @@ def go(f, *args, _loop=None, **kwargs):
             if res is not None:
                 ch.put_nowait(res)
             ch.close()
+
         loop.call_soon(worker)
     else:
         def worker():
@@ -420,6 +414,7 @@ def go(f, *args, _loop=None, **kwargs):
             if res is not None:
                 ch.put_nowait(res)
             ch.close()
+
         loop.call_soon(worker)
     return ch
 
@@ -447,8 +442,10 @@ def concat_elements(*chans):
     pass
 
 
-class _PromiseBuffer(buffers.AbstractBuffer):
-    def __init__(self, maxsize=None):
+class _PromiseBuffer:
+    __slots__ = ('_val',)
+
+    def __init__(self):
         self._val = None
 
     def add(self, el):

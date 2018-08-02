@@ -76,10 +76,3 @@ def test_sliding_buffer():
 
     assert buffer.can_add
     assert not buffer.can_take
-
-
-def test_empty_buffer():
-    buffer = EmptyBuffer()
-
-    assert not buffer.can_take
-    assert not buffer.can_add

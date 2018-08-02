@@ -1,41 +1,9 @@
-import abc
 import collections
 
 
-class AbstractBuffer(abc.ABC):
-    @abc.abstractmethod
-    def add(self, el):
-        """
-        adding an element
-        :param el:
-        :return:
-        """
+class FixedLengthBuffer:
+    __slots__ = ('_maxsize', '_queue')
 
-    @abc.abstractmethod
-    def take(self):
-        """
-        remove an element. if there is none, return `None`.
-        :return:
-        """
-
-    @property
-    @abc.abstractmethod
-    def can_add(self):
-        """
-        whether the buffer is full
-        :return:
-        """
-
-    @property
-    @abc.abstractmethod
-    def can_take(self):
-        """
-        whether the buffer contains at least one element
-        :return:
-        """
-
-
-class FixedLengthBuffer(AbstractBuffer):
     def __init__(self, maxsize):
         self._maxsize = maxsize
         self._queue = collections.deque()
@@ -55,7 +23,9 @@ class FixedLengthBuffer(AbstractBuffer):
         return bool(len(self._queue))
 
 
-class DroppingBuffer(AbstractBuffer):
+class DroppingBuffer:
+    __slots__ = ('_maxsize', '_queue')
+
     def __init__(self, maxsize):
         self._maxsize = maxsize
         self._queue = collections.deque()
@@ -76,7 +46,9 @@ class DroppingBuffer(AbstractBuffer):
         return bool(len(self._queue))
 
 
-class SlidingBuffer(AbstractBuffer):
+class SlidingBuffer:
+    __slots__ = ('_maxsize', '_queue')
+
     def __init__(self, maxsize):
         self._maxsize = maxsize
         self._queue = collections.deque(maxlen=maxsize)
@@ -94,17 +66,3 @@ class SlidingBuffer(AbstractBuffer):
     @property
     def can_take(self):
         return bool(len(self._queue))
-
-
-class EmptyBuffer(AbstractBuffer):
-    can_add = False
-    can_take = False
-
-    def __init__(self, maxsize=None):
-        pass
-
-    def add(self, el):
-        raise RuntimeError
-
-    def take(self):
-        raise RuntimeError
