@@ -129,6 +129,17 @@ def timeout(chan, seconds, *values, close=True):
     return chan
 
 
+def respond_to(chan, ctl_chan, f):
+    async def runner():
+        async for signal in ctl_chan:
+            f(chan, signal, ctl_chan)
+            if signal is None:
+                break
+
+    chan._loop.create_task(runner())
+    return chan
+
+
 _buf_types = {'f': buffers.FixedLengthBuffer,
               'd': buffers.DroppingBuffer,
               's': buffers.SlidingBuffer,
@@ -333,6 +344,8 @@ class Chan:
     get = get
     timeout = timeout
     add = add
+    close_on = functools.partial(respond_to, f=lambda ch, sig, ctrl: ch.close())
+    respond_to = respond_to
 
 
 async def _chan_aitor(chan):
