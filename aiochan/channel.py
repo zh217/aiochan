@@ -133,8 +133,7 @@ def respond_to(chan, ctl_chan, f):
     async def runner():
         async for signal in ctl_chan:
             f(chan, signal, ctl_chan)
-            if signal is None:
-                break
+        f(chan, None, ctl_chan)
 
     chan._loop.create_task(runner())
     return chan
