@@ -1,8 +1,8 @@
 import asyncio
 import pytest
 
-from ..channel import *
-from ..buffers import *
+from aiochan.channel import *
+from aiochan.buffers import *
 
 
 async def nop(seconds=0.0):

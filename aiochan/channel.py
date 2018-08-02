@@ -110,13 +110,22 @@ def pipeline(self, f, other=None, close_source=True, close_dest=True, parallelis
     return other
 
 
-def timeout(chan, seconds):
+def timeout(chan, seconds, *values, close=True):
     """
     close chan after seconds
+    :param values:
+    :param close:
     :param seconds:
     :type chan: Chan
     """
-    chan._loop.call_later(seconds, lambda: chan.close())
+
+    def cb():
+        chan.add(*values)
+        if close:
+            chan.close()
+
+    # noinspection PyProtectedMember
+    chan._loop.call_later(seconds, cb)
     return chan
 
 

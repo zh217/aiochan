@@ -1,4 +1,4 @@
-from ..buffers import *
+from aiochan.buffers import *
 
 
 def test_fixed_buffer():
