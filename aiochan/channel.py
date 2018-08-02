@@ -135,10 +135,11 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'p': buffers.PromiseBuffer}
 
 MAX_OP_QUEUE_SIZE = 1024
+MAX_DIRTY_SIZE = 256
 
 
 class Chan:
-    __slots__ = ('_loop', '_buf', '_gets', '_puts', '_closed')
+    __slots__ = ('_loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets')
 
     def __init__(self, buffer=None, buffer_size=None, *, loop=None):
         self._loop = loop or asyncio.get_event_loop()
@@ -153,6 +154,14 @@ class Chan:
         self._gets = collections.deque()
         self._puts = collections.deque()
         self._closed = asyncio.Event(loop=self._loop)
+        self._dirty_puts = 0
+        self._dirty_gets = 0
+
+    def _notify_dirty(self, is_put):
+        if is_put:
+            self._dirty_puts += 1
+        else:
+            self._dirty_gets += 1
 
     @property
     def closed(self):
@@ -170,9 +179,11 @@ class Chan:
 
     def _clean_gets(self):
         self._gets = collections.deque(g for g in self._gets if g.active)
+        self._dirty_gets = 0
 
     def _clean_puts(self):
         self._puts = collections.deque(p for p in self._puts if p[0].active)
+        self._dirty_puts = 0
 
     # noinspection PyRedundantParentheses
     def _put(self, val, handler):
@@ -201,6 +212,7 @@ class Chan:
                     getter = g
                     break
             except IndexError:
+                self._dirty_gets = 0
                 break
 
         # case 2: no buffer and pending getter, dispatch immediately
@@ -213,11 +225,12 @@ class Chan:
         # case 3: no buffer, no pending getter, queue put op if put is blockable
         if handler.blockable:
             # print('put op: queue put')
-            if len(self._puts) == MAX_OP_QUEUE_SIZE:
+            if self._dirty_puts >= MAX_DIRTY_SIZE:
                 self._clean_puts()
-                assert len(self._puts) < MAX_OP_QUEUE_SIZE, \
-                    f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
-                    f'allowed on a single channel. Consider using a windowed buffer.'
+            assert len(self._puts) < MAX_OP_QUEUE_SIZE, \
+                f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
+                f'allowed on a single channel. Consider using a windowed buffer.'
+            handler.queue(self, True)
             self._puts.append((handler, val))
             return None
 
@@ -238,6 +251,7 @@ class Chan:
                         self._buf.add(putter[1])
                         self._dispatch(putter[0].commit(), True)
                 except IndexError:
+                    self._dirty_puts = 0
                     break
             return (val,)
 
@@ -249,6 +263,7 @@ class Chan:
                     putter = p
                     break
             except IndexError:
+                self._dirty_puts = 0
                 break
 
         # case 2: we have a putter immediately available
@@ -268,11 +283,12 @@ class Chan:
         # case 3: cannot deal with getter immediately: queue if blockable
         if handler.blockable:
             # print('get op: queue get op')
-            if len(self._gets) == MAX_OP_QUEUE_SIZE:
+            if self._dirty_gets >= MAX_DIRTY_SIZE:
                 self._clean_gets()
-                assert len(self._gets) < MAX_OP_QUEUE_SIZE, \
-                    f'No more than {MAX_OP_QUEUE_SIZE} pending gets ' + \
-                    f'are allowed on a single channel'
+            assert len(self._gets) < MAX_OP_QUEUE_SIZE, \
+                f'No more than {MAX_OP_QUEUE_SIZE} pending gets ' + \
+                f'are allowed on a single channel'
+            handler.queue(self, False)
             self._gets.append(handler)
             return None
 
@@ -286,6 +302,7 @@ class Chan:
                     val = self._buf.take() if self._buf and self._buf.can_take else None
                     self._dispatch(getter.commit(), val)
             except IndexError:
+                self._dirty_gets = 0
                 break
         self._closed.set()
         return self
@@ -366,7 +383,7 @@ def select(*chan_ops, priority=False, default=None, loop=None):
     if ret:
         ft.set_result(ret)
     elif default is not None and flag.active:
-        flag.commit()
+        flag.commit(None)
         ft.set_result(SelectResult(default, None))
 
     return ft
