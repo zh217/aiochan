@@ -12,8 +12,6 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'dropping': buffers.DroppingBuffer,
               's': buffers.SlidingBuffer,
               'sliding': buffers.SlidingBuffer,
-              'p': buffers.PromiseBuffer,
-              'promise': buffers.PromiseBuffer,
               None: buffers.EmptyBuffer}
 
 MAX_OP_QUEUE_SIZE = 1024
@@ -26,7 +24,7 @@ class Chan:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
             if isinstance(buffer, numbers.Integral):
-                self._buf = buffers.FixedLengthBuffer(buffer_size)
+                self._buf = buffers.FixedLengthBuffer(buffer)
             else:
                 self._buf = buffer
 
@@ -447,3 +445,22 @@ def merge(*chans):
 
 def concat_elements(*chans):
     pass
+
+
+class _PromiseBuffer(buffers.AbstractBuffer):
+    def __init__(self, maxsize=None):
+        self._val = None
+
+    def add(self, el):
+        self._val = el
+
+    def take(self):
+        return self._val
+
+    @property
+    def can_add(self):
+        return self._val is None
+
+    @property
+    def can_take(self):
+        return self._val is not None

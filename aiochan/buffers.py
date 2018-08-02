@@ -96,25 +96,6 @@ class SlidingBuffer(AbstractBuffer):
         return bool(len(self._queue))
 
 
-class PromiseBuffer(AbstractBuffer):
-    def __init__(self, maxsize=None):
-        self._val = None
-
-    def add(self, el):
-        self._val = el
-
-    def take(self):
-        return self._val
-
-    @property
-    def can_add(self):
-        return self._val is None
-
-    @property
-    def can_take(self):
-        return self._val is not None
-
-
 class EmptyBuffer(AbstractBuffer):
     can_add = False
     can_take = False

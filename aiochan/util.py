@@ -1,7 +1,7 @@
 import collections
 import abc
 
-Box = collections.namedtuple('Box', 'get')
+Box = collections.namedtuple('Box', 'val')
 PutBox = collections.namedtuple('PutBox', 'handler val')
 
 
