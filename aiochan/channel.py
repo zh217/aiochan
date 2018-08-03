@@ -5,6 +5,7 @@ import numbers
 import operator
 import random
 import sys
+import queue
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -25,10 +26,10 @@ class Chan:
     """
     a channel
     """
-    __slots__ = ('_loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets')
+    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets')
 
     def __init__(self, buffer=None, buffer_size=None, *, loop=None):
-        self._loop = loop or asyncio.get_event_loop()
+        self.loop = loop or asyncio.get_event_loop()
         try:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
@@ -39,7 +40,7 @@ class Chan:
 
         self._gets = collections.deque()
         self._puts = collections.deque()
-        self._closed = asyncio.Event(loop=self._loop)
+        self._closed = asyncio.Event(loop=self.loop)
         self._dirty_puts = 0
         self._dirty_gets = 0
 
@@ -61,9 +62,9 @@ class Chan:
         elif asyncio.isfuture(f):
             f.set_result(value)
         elif asyncio.iscoroutinefunction(f):
-            self._loop.create_task(f(value))
+            self.loop.create_task(f(value))
         else:
-            self._loop.call_soon(functools.partial(f, value))
+            self.loop.call_soon(functools.partial(f, value))
 
     def _clean_gets(self):
         self._gets = collections.deque(g for g in self._gets if g.active)
@@ -204,7 +205,7 @@ class Chan:
     def __or__(self, other):
         if not isinstance(other, Chan):
             return NotImplemented
-        return select(self, other, priority=True, loop=self._loop)
+        return select(self, other, priority=True, loop=self.loop)
 
     def __and__(self, other):
         if not isinstance(other, Chan):
@@ -255,10 +256,10 @@ class Chan:
         :return: future holding the result of the put: True if the put succeeds, False if the channel is closed before
         succeeding.
         """
-        ft = self._loop.create_future()
+        ft = self.loop.create_future()
         ret = self._put(val, FnHandler(ft, blockable=True))
         if ret is not None:
-            ft = self._loop.create_future()
+            ft = self.loop.create_future()
             ft.set_result(ret[0])
         return ft
 
@@ -302,10 +303,10 @@ class Chan:
         :type self: Chan
         :return: a future holding the value, or None if the channel is closed before succeeding.
         """
-        ft = self._loop.create_future()
+        ft = self.loop.create_future()
         ret = self._get(FnHandler(ft, blockable=True))
         if ret is not None:
-            ft = self._loop.create_future()
+            ft = self.loop.create_future()
             ft.set_result(ret[0])
         return ft
 
@@ -318,8 +319,34 @@ class Chan:
     def pipe(self, out=None, f=_pipe_worker):
         if out is None:
             out = Chan()
-        self._loop.create_task(f(self, out))
+        self.loop.create_task(f(self, out))
         return out
+
+    def to_queue(self, q=None):
+        if q is None:
+            q = queue.Queue()
+
+        async def worker():
+            async for v in self:
+                q.put(v)
+            q.put(None)
+
+        self.loop.create_task(worker())
+
+        return q
+
+    def to_generator(self, buffer_size=None):
+        q = self.to_queue(queue.Queue(maxsize=buffer_size))
+
+        def item_gen():
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                else:
+                    yield item
+
+        return item_gen()
 
     def parallel_pipe(self, n, f, out=None, mode='thread', **kwargs):
         assert mode in 'thread', 'process'
@@ -335,7 +362,7 @@ class Chan:
 
         async def job_in():
             async for v in self:
-                res = self._loop.create_future()
+                res = self.loop.create_future()
                 ft = executor.submit(f, v)
                 ft.add_done_callback(lambda rft: res.set_result(rft.result()))
                 await results.put(res)
@@ -346,8 +373,8 @@ class Chan:
                 if not await out.put(await ft):
                     break
 
-        self._loop.create_task(job_out())
-        self._loop.create_task(job_in())
+        self.loop.create_task(job_out())
+        self.loop.create_task(job_in())
 
         return out
 
@@ -367,7 +394,7 @@ class Chan:
                 ft.add_done_callback(lambda rft: out.put_nowait(rft.result(), immediate_only=False))
             executor.shutdown(wait=False)
 
-        self._loop.create_task(job_in())
+        self.loop.create_task(job_in())
 
         return out
 
@@ -386,7 +413,7 @@ class Chan:
                 self.close()
 
         # noinspection PyProtectedMember
-        self._loop.call_later(seconds, cb)
+        self.loop.call_later(seconds, cb)
         return self
 
     def dup(self):
@@ -575,8 +602,7 @@ class Dup:
                 if self._outs:
                     await dchan.get()
 
-        # noinspection PyProtectedMember
-        chan._loop.create_task(worker())
+        chan.loop.create_task(worker())
 
     @property
     def inp(self):
@@ -632,8 +658,7 @@ class Pub:
                 if not await m.inp.put(val):
                     self.unsub_all(topic)
 
-        # noinspection PyProtectedMember
-        chan._loop.create_task(worker())
+        chan.loop.create_task(worker())
 
     def _get_mult(self, topic):
         if topic in self._mults:
@@ -667,3 +692,42 @@ class Pub:
         else:
             self._mults.pop(topic, None)
         return self
+
+
+def go(f, *args, loop=None, threadsafe=False, **kwargs):
+    loop = loop or asyncio.get_event_loop()
+    ch = Chan(loop=loop)
+    if asyncio.iscoroutinefunction(f):
+        async def worker():
+            res = await f(*args, **kwargs)
+            if res is not None:
+                ch.put_nowait(res)
+            ch.close()
+
+        if threadsafe:
+            asyncio.run_coroutine_threadsafe(worker(), loop)
+        else:
+            loop.create_task(worker())
+    elif callable(f):
+        def worker():
+            res = f(*args, **kwargs)
+            if res is not None:
+                ch.put_nowait(res)
+            ch.close()
+
+        if threadsafe:
+            loop.call_soon_threadsafe(worker)
+        else:
+            loop.call_soon(worker)
+    else:
+        def worker():
+            res = f
+            if res is not None:
+                ch.put_nowait(res)
+            ch.close()
+
+        if threadsafe:
+            loop.call_soon_threadsafe(worker)
+        else:
+            loop.call_soon(worker)
+    return ch
