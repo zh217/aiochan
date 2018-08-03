@@ -136,6 +136,7 @@ def respond_to(chan, ctl_chan, f):
             f(chan, signal, ctl_chan)
         f(chan, None, ctl_chan)
 
+    # noinspection PyProtectedMember
     chan._loop.create_task(runner())
     return chan
 
@@ -171,8 +172,10 @@ class Chan:
     def _notify_dirty(self, is_put):
         if is_put:
             self._dirty_puts += 1
+            # print('notified put', self._dirty_puts)
         else:
             self._dirty_gets += 1
+            # print('notified get', self._dirty_gets)
 
     @property
     def closed(self):
@@ -335,7 +338,11 @@ class Chan:
 
     def __repr__(self):
         if DEBUG_FLAG:
-            return f'Chan(puts={list(self._puts)}, gets={list(self._gets)}, buffer={self._buf}, closed={self.closed})'
+            return f'Chan(puts={list(self._puts)}, ' \
+                   f'gets={list(self._gets)}, ' \
+                   f'buffer={self._buf}, ' \
+                   f'dirty={self._dirty_gets}g{self._dirty_puts}p, ', \
+                   f'closed={self.closed})'
         return f'Chan<{id(self)}>'
 
     put_nowait = put_nowait
@@ -400,3 +407,72 @@ def select(*chan_ops, priority=False, default=None, loop=None):
         ft.set_result(SelectResult(default, None))
 
     return ft
+
+
+class Mixture:
+    __slots__ = ('_loop', '_out', '_chans', '_solo_mode', '_change_chan', '_solos', '_mutes', '_reads')
+
+    def __init__(self, out=None, loop=None):
+        self._change_chan = Chan()
+        self._out = out or Chan()
+        self._solo_mode = 'mute'
+        self._chans = {}
+        self._loop = loop or asyncio.get_event_loop()
+        self._solos = set()
+        self._mutes = set()
+        self._reads = set()
+
+        async def worker():
+            while True:
+                v, c = await select(*self._reads)
+                if c is self._change_chan:
+                    self._calc_state()
+                    continue
+
+                if v is None:
+                    self._chans.pop(c, None)
+                    self._calc_state()
+                    continue
+
+                if c in self._solos or (not self._solos and c not in self._mutes):
+                    if not await self._out.put(v):
+                        break
+
+        self._loop.create_task(worker())
+
+    def _calc_state(self):
+        self._solos = {c for c, v in self._chans.items() if 'solo' in v}
+        self._mutes = {c for c, v in self._chans.items() if 'mute' in v}
+        self._reads = {self._change_chan}
+        if self._solo_mode == 'pause' and self._solos:
+            self._reads += self._solos
+        else:
+            self._reads += (c for c, v in self._chans.items() if 'pause' not in v)
+
+    def _changed(self):
+        self._change_chan.put_nowait(True, immediate_only=False)
+
+    @property
+    def out(self):
+        return self._out
+
+    def mix(self, ch, attrs=()):
+        self._chans[ch] = {v for v in attrs if v in ('solo', 'mute', 'pause')}
+        self._changed()
+        return self
+
+    def unmix(self, ch):
+        self._chans.pop(ch, None)
+        self._changed()
+        return self
+
+    def unmix_all(self):
+        self._chans = {}
+        self._changed()
+        return self
+
+    def solo_mode(self, mode):
+        assert mode in 'mute', 'solo'
+        self._solo_mode = mode
+        self._changed()
+        return self
