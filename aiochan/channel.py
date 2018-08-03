@@ -467,44 +467,45 @@ class Mux:
     """
     a multiplexer
     """
-    __slots__ = ('_loop', '_out', '_chans', '_solo_mode', '_change_chan', '_solos', '_mutes', '_reads')
+    __slots__ = ('_out', '_chans', '_solo_mode', '_change_chan')
 
     def __init__(self, out=None, loop=None):
         self._change_chan = Chan()
         self._out = out or Chan()
         self._solo_mode = 'mute'
         self._chans = {}
-        self._loop = loop or asyncio.get_event_loop()
-        self._solos = set()
-        self._mutes = set()
-        self._reads = set()
+        solos = set()
+        mutes = set()
+        reads = set()
+
+        def calc_state():
+            nonlocal solos, mutes, reads
+            solos = {c for c, v in self._chans.items() if 'solo' in v}
+            mutes = {c for c, v in self._chans.items() if 'mute' in v}
+            reads = {self._change_chan}
+            if self._solo_mode == 'pause' and solos:
+                reads += solos
+            else:
+                reads += (c for c, v in self._chans.items() if 'pause' not in v)
 
         async def worker():
             while True:
-                v, c = await select(*self._reads)
+                v, c = await select(*reads)
                 if c is self._change_chan:
-                    self._calc_state()
+                    calc_state()
                     continue
 
                 if v is None:
                     self._chans.pop(c, None)
-                    self._calc_state()
+                    calc_state()
                     continue
 
-                if c in self._solos or (not self._solos and c not in self._mutes):
+                if c in solos or (not solos and c not in mutes):
                     if not await self._out.put(v):
                         break
 
-        self._loop.create_task(worker())
-
-    def _calc_state(self):
-        self._solos = {c for c, v in self._chans.items() if 'solo' in v}
-        self._mutes = {c for c, v in self._chans.items() if 'mute' in v}
-        self._reads = {self._change_chan}
-        if self._solo_mode == 'pause' and self._solos:
-            self._reads += self._solos
-        else:
-            self._reads += (c for c, v in self._chans.items() if 'pause' not in v)
+        loop = loop or asyncio.get_event_loop()
+        loop.create_task(worker())
 
     def _changed(self):
         self._change_chan.put_nowait(True, immediate_only=False)
