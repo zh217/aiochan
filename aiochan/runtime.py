@@ -45,8 +45,18 @@ class ThreadRunner:
     def stop(self):
         self.loop.stop()
 
+    def stop(self):
+        self.loop.stop()
+
     def __call__(self):
         return self.run()
+
+    def __enter__(self):
+        self.run()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
 
     def __enter__(self):
         self.run()
