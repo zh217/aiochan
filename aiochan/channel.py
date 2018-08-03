@@ -321,15 +321,15 @@ class Chan:
         self._loop.create_task(f(self, out))
         return out
 
-    def parallel_pipe(self, n, f, out=None, mode='thread'):
+    def parallel_pipe(self, n, f, out=None, mode='thread', **kwargs):
         assert mode in 'thread', 'process'
         if out is None:
             out = Chan()
 
         if mode == 'thread':
-            executor = ThreadPoolExecutor(max_workers=n)
+            executor = ThreadPoolExecutor(max_workers=n, **kwargs)
         else:
-            executor = ProcessPoolExecutor(max_workers=n)
+            executor = ProcessPoolExecutor(max_workers=n, **kwargs)
 
         results = Chan(n)
 
@@ -351,15 +351,15 @@ class Chan:
 
         return out
 
-    def parallel_pipe_unordered(self, n, f, out=None, mode='thread'):
+    def parallel_pipe_unordered(self, n, f, out=None, mode='thread', **kwargs):
         assert mode in 'thread', 'process'
         if out is None:
             out = Chan()
 
         if mode == 'thread':
-            executor = ThreadPoolExecutor(max_workers=n)
+            executor = ThreadPoolExecutor(max_workers=n, **kwargs)
         else:
-            executor = ProcessPoolExecutor(max_workers=n)
+            executor = ProcessPoolExecutor(max_workers=n, **kwargs)
 
         async def job_in():
             async for v in self:
