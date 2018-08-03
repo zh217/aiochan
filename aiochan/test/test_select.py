@@ -1,5 +1,6 @@
-from aiochan import *
 import pytest
+
+from aiochan import *
 
 
 @pytest.mark.asyncio

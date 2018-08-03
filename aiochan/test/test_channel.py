@@ -1,8 +1,7 @@
-import asyncio
 import pytest
 
-from aiochan.channel import *
 from aiochan.buffers import *
+from aiochan.channel import *
 
 
 async def nop(seconds=0.0):
@@ -181,7 +180,6 @@ async def test_coroutine_dispatch():
     v = None
 
     async def cb(r):
-        print('bababa')
         nonlocal v
         v = r
 

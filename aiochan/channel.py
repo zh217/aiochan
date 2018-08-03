@@ -1,8 +1,9 @@
 import asyncio
 import collections
+import functools
 import numbers
 import random
-import functools
+
 from . import buffers
 from .util import FnHandler, SelectFlag, SelectHandler
 
