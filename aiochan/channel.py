@@ -2,144 +2,15 @@ import asyncio
 import collections
 import functools
 import numbers
+import operator
 import random
+import sys
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
 from .util import FnHandler, SelectFlag, SelectHandler
 
 DEBUG_FLAG = False
-
-
-def put_nowait(chan, val, cb=None, *, immediate_only=True):
-    """
-    put val into the channel but do not wait.
-    :type chan: Chan
-    :param chan:
-    :param val: value to put.
-    :param cb: callback to execute if the put operation is queued, passing True if the put finally succeeds, False
-    if the channel is closed before put succeeds. Cannot be supplied when immediate_only is True.
-    :param immediate_only: if True, do not attempt to queue the put if it cannot succeed immediately.
-    :return: True if the put succeeds immediately, False if the channel is already closed, None otherwise.
-    """
-    if immediate_only:
-        assert cb is None, 'cb must be None if immediate_only is True'
-        ret = chan._put(val, FnHandler(None, blockable=False))
-        if ret:
-            return ret[0]
-        else:
-            return None
-
-    ret = chan._put(val, FnHandler(cb, blockable=True))
-    if ret is None:
-        return None
-
-    if cb is not None:
-        chan._dispatch(cb, ret[0])
-    return ret[0]
-
-
-def put(chan, val):
-    """
-    asynchronously put value into the channel
-    :type chan: Chan
-    :param chan:
-    :param val: the value to put
-    :return: future holding the result of the put: True if the put succeeds, False if the channel is closed before
-    succeeding.
-    """
-    ft = chan._loop.create_future()
-    ret = chan._put(val, FnHandler(ft, blockable=True))
-    if ret is not None:
-        ft = chan._loop.create_future()
-        ft.set_result(ret[0])
-    return ft
-
-
-def add(chan, *vals):
-    for v in vals:
-        chan.put_nowait(v, immediate_only=False)
-    return chan
-
-
-def get_nowait(chan, cb=None, *, immediate_only=True):
-    """
-    try to get a value from the channel but do not wait.
-    :type chan: Chan
-    :param chan:
-    :param cb: a callback to execute, passing in the eventual value of the get operation, which is None
-    if the channel becomes closed before a value is available. Cannot be supplied when immediate_only is True.
-    Note that if cb is supplied, it will be executed even when the value IS immediately available and returned
-    by the function.
-    :param immediate_only: do not queue the get operation if it cannot be completed immediately.
-    :return: the value if available immediately, None otherwise
-    """
-    if immediate_only:
-        assert cb is None, 'cb must be None if immediate_only is True'
-        ret = chan._get(FnHandler(None, blockable=False))
-        if ret:
-            return ret[0]
-        else:
-            return None
-
-    ret = chan._get(FnHandler(cb, blockable=True))
-
-    if ret is not None:
-        if cb is not None:
-            chan._dispatch(cb, ret[0])
-        return ret[0]
-
-    return None
-
-
-def get(chan):
-    """
-    Asynchronously getting value from the channel.
-    :type chan: Chan
-    :return: a future holding the value, or None if the channel is closed before succeeding.
-    """
-    ft = chan._loop.create_future()
-    ret = chan._get(FnHandler(ft, blockable=True))
-    if ret is not None:
-        ft = chan._loop.create_future()
-        ft.set_result(ret[0])
-    return ft
-
-
-def pipeline(self, f, other=None, close_source=True, close_dest=True, parallelism=None, n_workers=None):
-    other = other or Chan(loop=self._loop)
-    # TODO
-    return other
-
-
-def timeout(chan, seconds, *values, close=True):
-    """
-    close chan after seconds
-    :param values:
-    :param close:
-    :param seconds:
-    :type chan: Chan
-    """
-
-    def cb():
-        chan.add(*values)
-        if close:
-            chan.close()
-
-    # noinspection PyProtectedMember
-    chan._loop.call_later(seconds, cb)
-    return chan
-
-
-def respond_to(chan, ctl_chan, f):
-    async def runner():
-        async for signal in ctl_chan:
-            f(chan, signal, ctl_chan)
-        f(chan, None, ctl_chan)
-
-    # noinspection PyProtectedMember
-    chan._loop.create_task(runner())
-    return chan
-
 
 _buf_types = {'f': buffers.FixedLengthBuffer,
               'd': buffers.DroppingBuffer,
@@ -151,6 +22,9 @@ MAX_DIRTY_SIZE = 256
 
 
 class Chan:
+    """
+    a channel
+    """
     __slots__ = ('_loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets')
 
     def __init__(self, buffer=None, buffer_size=None, *, loop=None):
@@ -345,14 +219,181 @@ class Chan:
                    f'closed={self.closed})'
         return f'Chan<{id(self)}>'
 
-    put_nowait = put_nowait
-    put = put
-    get_nowait = get_nowait
-    get = get
-    timeout = timeout
-    add = add
-    close_on = functools.partial(respond_to, f=lambda ch, sig, ctrl: ch.close())
-    respond_to = respond_to
+    def put_nowait(self, val, cb=None, *, immediate_only=True):
+        """
+        put val into the channel but do not wait.
+        :type self: Chan
+        :param self:
+        :param val: value to put.
+        :param cb: callback to execute if the put operation is queued, passing True if the put finally succeeds, False
+        if the channel is closed before put succeeds. Cannot be supplied when immediate_only is True.
+        :param immediate_only: if True, do not attempt to queue the put if it cannot succeed immediately.
+        :return: True if the put succeeds immediately, False if the channel is already closed, None otherwise.
+        """
+        if immediate_only:
+            assert cb is None, 'cb must be None if immediate_only is True'
+            ret = self._put(val, FnHandler(None, blockable=False))
+            if ret:
+                return ret[0]
+            else:
+                return None
+
+        ret = self._put(val, FnHandler(cb, blockable=True))
+        if ret is None:
+            return None
+
+        if cb is not None:
+            self._dispatch(cb, ret[0])
+        return ret[0]
+
+    def put(self, val):
+        """
+        asynchronously put value into the channel
+        :type self: Chan
+        :param self:
+        :param val: the value to put
+        :return: future holding the result of the put: True if the put succeeds, False if the channel is closed before
+        succeeding.
+        """
+        ft = self._loop.create_future()
+        ret = self._put(val, FnHandler(ft, blockable=True))
+        if ret is not None:
+            ft = self._loop.create_future()
+            ft.set_result(ret[0])
+        return ft
+
+    def add(self, *vals):
+        for v in vals:
+            self.put_nowait(v, immediate_only=False)
+        return self
+
+    def get_nowait(self, cb=None, *, immediate_only=True):
+        """
+        try to get a value from the channel but do not wait.
+        :type self: Chan
+        :param self:
+        :param cb: a callback to execute, passing in the eventual value of the get operation, which is None
+        if the channel becomes closed before a value is available. Cannot be supplied when immediate_only is True.
+        Note that if cb is supplied, it will be executed even when the value IS immediately available and returned
+        by the function.
+        :param immediate_only: do not queue the get operation if it cannot be completed immediately.
+        :return: the value if available immediately, None otherwise
+        """
+        if immediate_only:
+            assert cb is None, 'cb must be None if immediate_only is True'
+            ret = self._get(FnHandler(None, blockable=False))
+            if ret:
+                return ret[0]
+            else:
+                return None
+
+        ret = self._get(FnHandler(cb, blockable=True))
+
+        if ret is not None:
+            if cb is not None:
+                self._dispatch(cb, ret[0])
+            return ret[0]
+
+        return None
+
+    def get(self):
+        """
+        Asynchronously getting value from the channel.
+        :type self: Chan
+        :return: a future holding the value, or None if the channel is closed before succeeding.
+        """
+        ft = self._loop.create_future()
+        ret = self._get(FnHandler(ft, blockable=True))
+        if ret is not None:
+            ft = self._loop.create_future()
+            ft.set_result(ret[0])
+        return ft
+
+    async def _pipe_worker(self, out):
+        async for v in self:
+            if not await out.put(v):
+                break
+        out.close()
+
+    def pipe(self, out=None, f=_pipe_worker):
+        if out is None:
+            out = Chan()
+        self._loop.create_task(f(self, out))
+        return out
+
+    def parallel_pipe(self, n, f, out=None, mode='thread'):
+        assert mode in 'thread', 'process'
+        if out is None:
+            out = Chan()
+
+        if mode == 'thread':
+            executor = ThreadPoolExecutor(max_workers=n)
+        else:
+            executor = ProcessPoolExecutor(max_workers=n)
+
+        results = Chan(n)
+
+        async def job_in():
+            async for v in self:
+                res = self._loop.create_future()
+                ft = executor.submit(f, v)
+                ft.add_done_callback(lambda rft: res.set_result(rft.result()))
+                await results.put(res)
+            executor.shutdown(wait=False)
+
+        async def job_out():
+            async for ft in results:
+                if not await out.put(await ft):
+                    break
+
+        self._loop.create_task(job_out())
+        self._loop.create_task(job_in())
+
+        return out
+
+    def parallel_pipe_unordered(self, n, f, out=None, mode='thread'):
+        assert mode in 'thread', 'process'
+        if out is None:
+            out = Chan()
+
+        if mode == 'thread':
+            executor = ThreadPoolExecutor(max_workers=n)
+        else:
+            executor = ProcessPoolExecutor(max_workers=n)
+
+        async def job_in():
+            async for v in self:
+                ft = executor.submit(f, v)
+                ft.add_done_callback(lambda rft: out.put_nowait(rft.result(), immediate_only=False))
+            executor.shutdown(wait=False)
+
+        self._loop.create_task(job_in())
+
+        return out
+
+    def timeout(self, seconds, *values, close=True):
+        """
+        close chan after seconds
+        :param values:
+        :param close:
+        :param seconds:
+        :type self: Chan
+        """
+
+        def cb():
+            self.add(*values)
+            if close:
+                self.close()
+
+        # noinspection PyProtectedMember
+        self._loop.call_later(seconds, cb)
+        return self
+
+    def dup(self):
+        return Dup(self)
+
+    def pub(self, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
+        return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
 
 
 async def _chan_aitor(chan):
@@ -362,9 +403,6 @@ async def _chan_aitor(chan):
             break
         else:
             yield ret
-
-
-SelectResult = collections.namedtuple('SelectResult', 'val chan')
 
 
 def select(*chan_ops, priority=False, default=None, loop=None):
@@ -388,28 +426,47 @@ def select(*chan_ops, priority=False, default=None, loop=None):
         if isinstance(chan_op, Chan):
             # getting
             chan = chan_op
-            r = chan._get(SelectHandler(lambda v: ft.set_result(SelectResult(v, chan)), flag))
+            r = chan._get(SelectHandler(lambda v: ft.set_result((v, chan)), flag))
             if r is not None:
-                ret = SelectResult(r[0], chan)
+                ret = (r[0], chan)
                 break
         else:
             # putting
             chan, val = chan_op
             # noinspection PyProtectedMember
-            r = chan._put(val, SelectHandler(lambda v: ft.set_result(SelectResult(v, chan)), flag))
+            r = chan._put(val, SelectHandler(lambda v: ft.set_result((v, chan)), flag))
             if r is not None:
-                ret = SelectResult(r[0], chan)
+                ret = (r[0], chan)
                 break
     if ret:
         ft.set_result(ret)
     elif default is not None and flag.active:
         flag.commit(None)
-        ft.set_result(SelectResult(default, None))
+        ft.set_result((default, None))
 
     return ft
 
 
-class Mixture:
+def merge(*chans, loop=None, buffer=None, buffer_size=None):
+    loop = loop or asyncio.get_event_loop()
+    out = Chan(buffer=buffer, buffer_size=buffer_size, loop=loop)
+
+    async def worker(chs):
+        while chs:
+            v, c = await select(*chs)
+            if v is None:
+                chs.remove(c)
+            else:
+                await out.put(v)
+
+    loop.create_task(worker(set(chans)))
+    return out
+
+
+class Mux:
+    """
+    a multiplexer
+    """
     __slots__ = ('_loop', '_out', '_chans', '_solo_mode', '_change_chan', '_solos', '_mutes', '_reads')
 
     def __init__(self, out=None, loop=None):
@@ -456,18 +513,21 @@ class Mixture:
     def out(self):
         return self._out
 
-    def mix(self, ch, attrs=()):
-        self._chans[ch] = {v for v in attrs if v in ('solo', 'mute', 'pause')}
+    def mix(self, *chans, attrs=()):
+        attrs = {v for v in attrs if v in ('solo', 'mute', 'pause')}
+        for ch in chans:
+            self._chans[ch] = attrs
         self._changed()
         return self
 
-    def unmix(self, ch):
-        self._chans.pop(ch, None)
+    def unmix(self, *chans):
+        for ch in chans:
+            self._chans.pop(ch, None)
         self._changed()
         return self
 
     def unmix_all(self):
-        self._chans = {}
+        self._chans.clear()
         self._changed()
         return self
 
@@ -475,4 +535,134 @@ class Mixture:
         assert mode in 'mute', 'solo'
         self._solo_mode = mode
         self._changed()
+        return self
+
+
+class Dup:
+    """
+    a duplicator
+    """
+
+    __slots__ = ('_in', '_outs')
+
+    def __init__(self, chan):
+        self._in = chan
+        self._outs = {}
+
+        async def worker():
+            dchan = Chan(1)
+            dctr = 0
+
+            def done(_):
+                nonlocal dctr
+                dctr -= 1
+                if dctr == 0:
+                    dchan.put_nowait(True, immediate_only=False)
+
+            while True:
+                val = await self._in.get()
+                if val is None:
+                    for c, will_close in self._outs.items():
+                        if will_close:
+                            c.close()
+                    break
+                dctr = len(self._outs)
+                for c in self._outs.keys():
+                    if not c.put_nowait(val, done, immediate_only=False):
+                        done(None)
+                        self.untap(c)
+                if self._outs:
+                    await dchan.get()
+
+        # noinspection PyProtectedMember
+        chan._loop.create_task(worker())
+
+    @property
+    def inp(self):
+        return self._in
+
+    def tap(self, *chs, close_when_done=True):
+        for ch in chs:
+            self._outs[ch] = close_when_done
+        return self
+
+    def untap(self, *chs):
+        for ch in chs:
+            self._outs.pop(ch, None)
+        return self
+
+    def untap_all(self):
+        self._outs.clear()
+        return self
+
+
+class Pub:
+    """
+    a publisher
+    """
+
+    __slots__ = ('_mults', '_buffer', '_buffer_size')
+
+    def __init__(self, chan, *, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
+        self._buffer = buffer
+        self._buffer_size = buffer_size
+        self._mults = {}
+
+        async def worker():
+            while True:
+                val = await chan.get()
+                if val is None:
+                    for m in self._mults.values():
+                        m.inp.close()
+                    break
+
+                # noinspection PyBroadException
+                try:
+                    topic = topic_fn(val)
+                except Exception as ex:
+                    print(ex, file=sys.stderr)
+                    continue
+
+                try:
+                    m = self._mults[topic]
+                except IndexError:
+                    continue
+
+                if not await m.inp.put(val):
+                    self.unsub_all(topic)
+
+        # noinspection PyProtectedMember
+        chan._loop.create_task(worker())
+
+    def _get_mult(self, topic):
+        if topic in self._mults:
+            return self._mults[topic]
+        else:
+            ch = Chan(buffer=self._buffer, buffer_size=self._buffer_size)
+            mult = Dup(ch)
+            self._mults[topic] = mult
+            return mult
+
+    def sub(self, topic, *chans, close_when_done=True):
+        m = self._get_mult(topic)
+        m.tap(*chans, close_when_done=close_when_done)
+        return self
+
+    def unsub(self, topic, *chans):
+        try:
+            m = self._mults[topic]
+        except KeyError:
+            pass
+        else:
+            m.untap(*chans)
+            # noinspection PyProtectedMember
+            if not m._outs:
+                self.unsub_all(topic)
+        return self
+
+    def unsub_all(self, topic=None):
+        if topic is None:
+            self._mults.clear()
+        else:
+            self._mults.pop(topic, None)
         return self

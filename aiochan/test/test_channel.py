@@ -253,3 +253,14 @@ async def test_timeout():
     elapsed = time.time() - start
     assert elapsed >= tout
     # assert elapsed < tout * 1.05
+
+
+@pytest.mark.asyncio
+async def test_async_iterator():
+    c = Chan().add(*range(10)).close()
+
+    result = []
+    async for v in c:
+        result.append(v)
+
+    assert result == list(range(10))
