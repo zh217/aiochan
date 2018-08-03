@@ -36,11 +36,24 @@ class ThreadRunner:
                 else:
                     self._in_chan.put_nowait(item, immediate_only=False)
 
+        self.loop.run_forever()
+
         asyncio.run_coroutine_threadsafe(self._coro_fn(self._in_chan, self._out_chan), loop=self.loop)
         asyncio.run_coroutine_threadsafe(queuer(), loop=self.loop)
+        return self
+
+    def stop(self):
+        self.loop.stop()
 
     def __call__(self):
+        return self.run()
+
+    def __enter__(self):
         self.run()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
 
     def send(self, item, block=True, timeout=None):
         self._in_q.put(item, block=block, timeout=timeout)
