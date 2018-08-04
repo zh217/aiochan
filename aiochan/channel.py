@@ -203,15 +203,6 @@ class Chan:
     async def join(self):
         await self._closed.wait()
 
-    def __or__(self, other):
-        if not isinstance(other, Chan):
-            return NotImplemented
-        return select(self, other, priority=True, loop=self.loop)
-
-    def __and__(self, other):
-        if not isinstance(other, Chan):
-            return NotImplemented
-
     def __repr__(self):
         if DEBUG_FLAG:
             return f'Chan({self._name} puts={list(self._puts)}, ' \
