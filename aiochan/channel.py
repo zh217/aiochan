@@ -3,9 +3,9 @@ import collections
 import functools
 import numbers
 import operator
+import queue
 import random
 import sys
-import queue
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -26,9 +26,10 @@ class Chan:
     """
     a channel
     """
-    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets')
+    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
 
-    def __init__(self, buffer=None, buffer_size=None, *, loop=None):
+    def __init__(self, buffer=None, buffer_size=None, *, loop=None, name=None):
+        self._name = name
         self.loop = loop or asyncio.get_event_loop()
         try:
             self._buf = _buf_types[buffer](buffer_size)
@@ -213,12 +214,12 @@ class Chan:
 
     def __repr__(self):
         if DEBUG_FLAG:
-            return f'Chan(puts={list(self._puts)}, ' \
+            return f'Chan({self._name} puts={list(self._puts)}, ' \
                    f'gets={list(self._gets)}, ' \
                    f'buffer={self._buf}, ' \
-                   f'dirty={self._dirty_gets}g{self._dirty_puts}p, ', \
+                   f'dirty={self._dirty_gets}g{self._dirty_puts}p, ' \
                    f'closed={self.closed})'
-        return f'Chan<{id(self)}>'
+        return f'Chan<{self._name} {id(self)}>'
 
     def put_nowait(self, val, cb=None, *, immediate_only=True):
         """
@@ -335,6 +336,20 @@ class Chan:
 
         return q
 
+    async def collect(self, n=None):
+        result = []
+        if n is None:
+            async for v in self:
+                result.append(v)
+        else:
+            for _ in range(n):
+                r = await self.get()
+                if r is None:
+                    break
+                else:
+                    result.append(r)
+        return result
+
     def to_generator(self, buffer_size=None):
         q = self.to_queue(queue.Queue(maxsize=buffer_size))
 
@@ -443,6 +458,7 @@ def select(*chan_ops, priority=False, default=None, loop=None):
     :param loop: asyncio loop to run on
     :return: a function containing SelectResult(val=result, chan=succeeded_chan)
     """
+    chan_ops = list(chan_ops)
     loop = loop or asyncio.get_event_loop()
     ft = loop.create_future()
     flag = SelectFlag()
@@ -484,7 +500,8 @@ def merge(*chans, loop=None, buffer=None, buffer_size=None):
             if v is None:
                 chs.remove(c)
             else:
-                await out.put(v)
+                if not await out.put(v):
+                    break
 
     loop.create_task(worker(set(chans)))
     return out
@@ -509,16 +526,20 @@ class Mux:
             nonlocal solos, mutes, reads
             solos = {c for c, v in self._chans.items() if 'solo' in v}
             mutes = {c for c, v in self._chans.items() if 'mute' in v}
-            reads = {self._change_chan}
             if self._solo_mode == 'pause' and solos:
-                reads += solos
+                reads = solos.copy()
             else:
-                reads += (c for c, v in self._chans.items() if 'pause' not in v)
+                reads = {c for c, v in self._chans.items() if 'pause' not in v}
+            reads.add(self._change_chan)
+
+        calc_state()
 
         async def worker():
             while True:
                 v, c = await select(*reads)
                 if c is self._change_chan:
+                    if v is None:
+                        break
                     calc_state()
                     continue
 
@@ -563,6 +584,10 @@ class Mux:
         assert mode in 'mute', 'solo'
         self._solo_mode = mode
         self._changed()
+        return self
+
+    def close(self):
+        self._change_chan.close()
         return self
 
 
@@ -622,6 +647,10 @@ class Dup:
         self._outs.clear()
         return self
 
+    def close(self):
+        self._in.close()
+        return self
+
 
 class Pub:
     """
@@ -656,7 +685,7 @@ class Pub:
                     continue
 
                 if not await m.inp.put(val):
-                    self.unsub_all(topic)
+                    self.remove_all_sub(topic)
 
         chan.loop.create_task(worker())
 
@@ -669,12 +698,12 @@ class Pub:
             self._mults[topic] = mult
             return mult
 
-    def sub(self, topic, *chans, close_when_done=True):
+    def add_sub(self, topic, *chans, close_when_done=True):
         m = self._get_mult(topic)
         m.tap(*chans, close_when_done=close_when_done)
         return self
 
-    def unsub(self, topic, *chans):
+    def remove_sub(self, topic, *chans):
         try:
             m = self._mults[topic]
         except KeyError:
@@ -683,10 +712,10 @@ class Pub:
             m.untap(*chans)
             # noinspection PyProtectedMember
             if not m._outs:
-                self.unsub_all(topic)
+                self.remove_all_sub(topic)
         return self
 
-    def unsub_all(self, topic=None):
+    def remove_all_sub(self, topic=None):
         if topic is None:
             self._mults.clear()
         else:
@@ -711,17 +740,6 @@ def go(f, *args, loop=None, threadsafe=False, **kwargs):
     elif callable(f):
         def worker():
             res = f(*args, **kwargs)
-            if res is not None:
-                ch.put_nowait(res)
-            ch.close()
-
-        if threadsafe:
-            loop.call_soon_threadsafe(worker)
-        else:
-            loop.call_soon(worker)
-    else:
-        def worker():
-            res = f
             if res is not None:
                 ch.put_nowait(res)
             ch.close()

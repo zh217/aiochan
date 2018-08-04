@@ -1,8 +1,11 @@
 import pytest
 
+import aiochan.channel
 import aiochan.util
 from aiochan.buffers import *
 from aiochan.channel import *
+
+aiochan.channel.DEBUG_FLAG = True
 
 
 async def nop(seconds=0.0):
@@ -264,3 +267,120 @@ async def test_async_iterator():
         result.append(v)
 
     assert result == list(range(10))
+
+
+@pytest.mark.asyncio
+async def test_pipe_and_list():
+    c = Chan().add(*range(5)).close()
+    o = c.pipe()
+    assert list(range(5)) == await o.collect()
+
+    c = Chan().add(*range(5)).close()
+
+    async def proc(i, o):
+        async for v in i:
+            await o.put(v * 2)
+            await o.put(v * 2 + 1)
+        o.close()
+
+    o = Chan()
+    c.pipe(o, proc)
+    assert list(range(0, 10)) == await o.collect()
+
+
+@pytest.mark.asyncio
+async def test_merge():
+    in1 = Chan().add(*range(10))
+    in2 = Chan().add(*range(10, 20))
+    o = merge(in1, in2)
+    assert set(range(20)) == set(await o.collect(20))
+    o.close()
+    await in1.put('x')
+
+
+@pytest.mark.asyncio
+async def test_mux():
+    out = Chan(name='out')
+    in1 = Chan(name='in1')
+    in2 = Chan(name='in2')
+    in1.add(1)
+    in2.add(2)
+    in1.add(3)
+    in2.add(4)
+    in1.add(5)
+    in1.close()
+    in2.close()
+    mx = Mux(out)
+    mx.mix(in1)
+    mx.mix(in2)
+    r = await out.collect(5)
+    assert {1, 2, 3, 4, 5, 5} == set(r)
+    mx.close()
+
+
+@pytest.mark.asyncio
+async def test_dup():
+    src = Chan()
+    a = Chan(4)
+    b = Chan(4)
+    m = src.dup()
+    m.tap(a, b)
+    src.add(0, 1, 2, 3)
+    assert [0, 1, 2, 3] == await a.collect(4)
+    assert [0, 1, 2, 3] == await b.collect(4)
+    m.close()
+
+
+@pytest.mark.asyncio
+async def test_pub_sub():
+    import numbers
+    a_ints = Chan(5)
+    a_strs = Chan(5)
+    b_ints = Chan(5)
+    b_strs = Chan(5)
+    src = Chan()
+
+    def topic(v):
+        if isinstance(v, str):
+            return 'string'
+        elif isinstance(v, numbers.Integral):
+            return 'int'
+        else:
+            return 'unknown'
+
+    p = src.pub(topic)
+    p.add_sub('string', a_strs, b_strs)
+    p.add_sub('int', a_ints)
+    p.add_sub('int', b_ints)
+    src.add(1, 'a', 2, 'b', 3, 'c').close()
+    assert [1, 2, 3] == await a_ints.collect()
+    assert [1, 2, 3] == await b_ints.collect()
+    assert ['a', 'b', 'c'] == await a_strs.collect()
+    assert ['a', 'b', 'c'] == await b_strs.collect()
+
+
+@pytest.mark.asyncio
+async def test_go():
+    r = go(lambda: 1)
+    assert 1 == await r.get()
+    assert r.closed
+
+    async def af(a):
+        await nop()
+        return a
+
+    r = go(af, 2)
+    assert 2 == await r.get()
+    assert r.closed
+
+    r = go(lambda: 1, threadsafe=True)
+    assert 1 == await r.get()
+    assert r.closed
+
+    async def af(a):
+        await nop()
+        return a
+
+    r = go(af, 2, threadsafe=True)
+    assert 2 == await r.get()
+    assert r.closed
