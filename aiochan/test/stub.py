@@ -3,6 +3,7 @@ from aiochan import *
 
 
 async def sample():
+    c = Chan()
     pass
 
 

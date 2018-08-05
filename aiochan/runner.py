@@ -3,7 +3,7 @@ import queue
 from .channel import Chan
 
 
-def pipe_threadsafe(c1, c2):
+def pipe_interthread(c1, c2):
     async def worker():
         async for v in c1:
             c2.loop.call_soon_threadsafe(c2.put_nowait, c2, v, immediate_only=False)

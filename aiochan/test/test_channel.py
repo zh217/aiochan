@@ -1,9 +1,10 @@
 import pytest
+import asyncio
 
 import aiochan.channel
 import aiochan.util
 from aiochan.buffers import *
-from aiochan.channel import *
+from aiochan import *
 
 aiochan.channel.DEBUG_FLAG = True
 
@@ -104,20 +105,20 @@ async def test_put_and_get_nowait():
 @pytest.mark.asyncio
 async def test_limit_async_get_nowait_and_put_nowait():
     c = Chan()
-    for i in range(MAX_OP_QUEUE_SIZE):
+    for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         c.put_nowait(i, immediate_only=False)
     with pytest.raises(AssertionError):
         c.put_nowait(42, immediate_only=False)
 
     c = Chan()
-    for i in range(MAX_OP_QUEUE_SIZE):
+    for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         c.get_nowait(lambda _: _, immediate_only=False)
     with pytest.raises(AssertionError):
         c.get_nowait(lambda _: _, immediate_only=False)
 
     c = Chan()
     flag = aiochan.util.SelectFlag()
-    for i in range(MAX_OP_QUEUE_SIZE):
+    for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         if i % 2 == 0:
             c._put(i, aiochan.util.FnHandler(None, True))
         else:
@@ -148,14 +149,14 @@ async def test_limit_async_get_nowait_and_put_nowait():
         else:
             c._get(aiochan.util.SelectHandler(lambda v: results.append((i, v)), flag))
 
-    for i in range(MAX_OP_QUEUE_SIZE):
+    for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         loop(i)
     assert c._dirty_gets == 0
     flag.commit(None)
     assert c._dirty_gets == 512
     assert c.get_nowait(lambda v: results.append(('end', v)), immediate_only=False) is None
     assert c._dirty_gets == 0
-    for i in range(MAX_OP_QUEUE_SIZE):
+    for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         c.add(i)
     await nop()
     assert results == list(zip(list(range(0, 1024, 2)) + ['end'], range(513)))
