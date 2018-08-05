@@ -538,3 +538,10 @@ def test_sync_op():
     t.start()
 
     assert list(range(10)) == list(g)
+
+
+@pytest.mark.asyncio
+async def test_context():
+    with Chan(1) as c:
+        await c.put(1)
+    assert c.closed

@@ -1,5 +1,7 @@
 import asyncio
 import queue
+import threading
+import functools
 from .channel import Chan
 
 
@@ -14,42 +16,56 @@ def pipe_interthread(c1, c2):
 
 class ThreadRunner:
     def __init__(self, coro_fn, loop=None, in_buffer_size=None, out_buffer_size=None):
-        self.loop = loop or asyncio.new_event_loop()
+        loop = loop or asyncio.new_event_loop()
+        self.loop = loop
         self._in_chan = Chan(loop=loop)
         self._out_chan = Chan(loop=loop)
-        self._in_q = queue.Queue(maxsize=in_buffer_size)
-        self._out_q = queue.Queue(maxsize=out_buffer_size)
+        self._in_q = queue.Queue(maxsize=in_buffer_size or 0)
+        self._out_q = queue.Queue(maxsize=out_buffer_size or 0)
         self._out_chan.to_queue(self._out_q)
-        self._coro_fn = coro_fn
-        self._run = False
 
-    def run(self):
+        async def coro_fn_(inc, ouc):
+            await coro_fn(inc, ouc)
+            inc.close()
+            ouc.close()
+
+        self._coro_fn = coro_fn_
+        self._run = False
+        self._thread = None
+        self._queue_thread = None
+
+    def start(self):
         assert not self._run
         self._run = True
 
-        async def queuer():
+        def queuer(in_q, in_chan):
             while True:
-                item = self._in_q.get()
+                item = in_q.get()
                 if item is None:
-                    self._in_chan.close()
+                    in_chan.loop.call_soon_threadsafe(functools.partial(in_chan.close))
                     break
                 else:
-                    self._in_chan.put_nowait(item, immediate_only=False)
+                    in_chan.loop.call_soon_threadsafe(
+                        functools.partial(in_chan.put_nowait, item, immediate_only=False))
 
-        self.loop.run_forever()
+        def starter(loop):
+            loop.run_until_complete(self._coro_fn(self._in_chan, self._out_chan))
 
-        asyncio.run_coroutine_threadsafe(self._coro_fn(self._in_chan, self._out_chan), loop=self.loop)
-        asyncio.run_coroutine_threadsafe(queuer(), loop=self.loop)
+        t = threading.Thread(target=starter, args=(self.loop,))
+        t.start()
+        self._thread = t
+
+        tq = threading.Thread(target=queuer, args=(self._in_q, self._in_chan))
+        tq.start()
+        self._queue_thread = tq
+
         return self
 
     def stop(self):
-        self.loop.stop()
-
-    def __call__(self):
-        return self.run()
+        self._in_q.put(None)
 
     def __enter__(self):
-        self.run()
+        self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

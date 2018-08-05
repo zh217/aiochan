@@ -197,6 +197,12 @@ class Chan:
         self._closed.set()
         return self
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def __aiter__(self):
         return _chan_aitor(self)
 
@@ -605,6 +611,12 @@ class Mux:
         self._change_chan.close()
         return self
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
 
 class Dup:
     """
@@ -669,6 +681,12 @@ class Dup:
         self._close_chan.close()
         return self
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
 
 class Pub:
     """
@@ -702,7 +720,7 @@ class Pub:
 
                 if not await m.inp.put(val):
                     self.remove_all_sub(topic)
-            self.remove_all_sub()
+            self.close()
 
         chan.loop.create_task(worker())
 
@@ -732,15 +750,22 @@ class Pub:
                 self.remove_all_sub(topic)
         return self
 
-    def remove_all_sub(self, topic=None):
-        if topic is None:
-            for k in list(self._mults.keys()):
-                self.remove_all_sub(k)
-            self._mults.clear()
-        else:
-            m = self._mults.pop(topic, None)
-            m.close()
+    def remove_all_sub(self, topic):
+        m = self._mults.pop(topic, None)
+        m.close()
         return self
+
+    def close(self):
+        self._mults.clear()
+        for k in list(self._mults.keys()):
+            self.remove_all_sub(k)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
 
 def go(f, *args, loop=None, threadsafe=False, **kwargs):
