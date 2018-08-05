@@ -334,10 +334,10 @@ async def test_dup():
 @pytest.mark.asyncio
 async def test_pub_sub():
     import numbers
-    a_ints = Chan(5)
-    a_strs = Chan(5)
-    b_ints = Chan(5)
-    b_strs = Chan(5)
+    a_ints = Chan(6)
+    a_strs = Chan(6)
+    b_ints = Chan(6)
+    b_strs = Chan(6)
     src = Chan()
 
     def topic(v):
@@ -352,11 +352,17 @@ async def test_pub_sub():
     p.add_sub('string', a_strs, b_strs)
     p.add_sub('int', a_ints)
     p.add_sub('int', b_ints)
-    src.add(1, 'a', 2, 'b', 3, 'c').close()
-    assert [1, 2, 3] == await a_ints.collect()
-    assert [1, 2, 3] == await b_ints.collect()
-    assert ['a', 'b', 'c'] == await a_strs.collect()
-    assert ['a', 'b', 'c'] == await b_strs.collect()
+    src.add(1, 'a', 2, 'b', 3, 'c')
+    assert [1, 2, 3] == await a_ints.collect(3)
+    assert [1, 2, 3] == await b_ints.collect(3)
+    assert ['a', 'b', 'c'] == await a_strs.collect(3)
+    assert ['a', 'b', 'c'] == await b_strs.collect(3)
+    p.remove_sub('int', a_ints)
+    p.remove_sub('int', b_ints)
+    src.add(4, 'd', 5, 'e', 6, 'f')
+    assert ['d', 'e', 'f'] == await a_strs.collect(3)
+    src.close()
+    await nop()
 
 
 @pytest.mark.asyncio
@@ -505,3 +511,29 @@ async def test_select_puts():
     # there is a 2/(2^100) chance that the following assertion become false
     # even though the program is correct
     assert (f_hits > 0) and (e_hits > 0)
+
+
+def test_sync_op():
+    import random
+    from threading import Thread
+
+    loop = asyncio.new_event_loop()
+
+    c = Chan(loop=loop)
+    g = c.to_generator(10)
+
+    async def work():
+        for i in range(10):
+            await asyncio.sleep(random.uniform(0, 0.001))
+            c.add(i)
+        c.close()
+
+    def start(loop):
+        asyncio.set_event_loop(loop)
+        # loop.create_task(work())
+        loop.run_until_complete(work())
+
+    t = Thread(target=start, args=(loop,))
+    t.start()
+
+    assert list(range(10)) == list(g)

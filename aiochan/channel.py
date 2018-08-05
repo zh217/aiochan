@@ -611,11 +611,12 @@ class Dup:
     a duplicator
     """
 
-    __slots__ = ('_in', '_outs')
+    __slots__ = ('_in', '_outs', '_close_chan')
 
     def __init__(self, chan):
         self._in = chan
         self._outs = {}
+        self._close_chan = Chan()
 
         async def worker():
             dchan = Chan(1)
@@ -628,7 +629,9 @@ class Dup:
                     dchan.put_nowait(True, immediate_only=False)
 
             while True:
-                val = await self._in.get()
+                val, c = await select(self._close_chan, self._in, priority=True)
+                if c is self._close_chan:
+                    break
                 if val is None:
                     for c, will_close in self._outs.items():
                         if will_close:
@@ -663,7 +666,7 @@ class Dup:
         return self
 
     def close(self):
-        self._in.close()
+        self._close_chan.close()
         return self
 
 
@@ -683,8 +686,6 @@ class Pub:
             while True:
                 val = await chan.get()
                 if val is None:
-                    for m in self._mults.values():
-                        m.inp.close()
                     break
 
                 # noinspection PyBroadException
@@ -696,11 +697,12 @@ class Pub:
 
                 try:
                     m = self._mults[topic]
-                except IndexError:
+                except KeyError:
                     continue
 
                 if not await m.inp.put(val):
                     self.remove_all_sub(topic)
+            self.remove_all_sub()
 
         chan.loop.create_task(worker())
 
@@ -732,9 +734,12 @@ class Pub:
 
     def remove_all_sub(self, topic=None):
         if topic is None:
+            for k in list(self._mults.keys()):
+                self.remove_all_sub(k)
             self._mults.clear()
         else:
-            self._mults.pop(topic, None)
+            m = self._mults.pop(topic, None)
+            m.close()
         return self
 
 
