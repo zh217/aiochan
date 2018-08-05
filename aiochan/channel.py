@@ -457,6 +457,58 @@ class Chan:
 
     def pub(self, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
+#
+#     def map(self, f):
+#         pass
+#
+#     def reduce(self, f):
+#         pass
+#
+#     def scan(self, f):
+#         pass
+#
+#     def filter(self, f):
+#         pass
+#
+#     def delay(self, t):
+#         pass
+#
+#     def debounce(self, t):
+#         pass
+#
+#     def take(self, n):
+#         pass
+#
+#     def take_while(self, f):
+#         pass
+#
+#     def drop(self, n):
+#         pass
+#
+#     def drop_while(self, f):
+#         pass
+#
+#     def distinct(self, f):
+#         pass
+#
+#     def sample(self, interval):
+#         pass
+#
+#     def window(self, interval, fn):
+#         pass
+#
+#     def time_interval(self):
+#         pass
+#
+#     def ignore_elements(self):
+#         pass
+#
+#     def last(self):
+#         pass
+#
+#
+# def ticker():
+#     pass
 
 
 async def _chan_aitor(chan):
@@ -526,6 +578,14 @@ def merge(*chans, loop=None, buffer=None, buffer_size=None):
 
     loop.create_task(worker(set(chans)))
     return out
+
+
+def zip(*chans, loop=None, buffer=None, buffer_size=None):
+    pass
+
+
+def combine_latest(*chans, loop=None, buffer=None, buffer_size=None):
+    pass
 
 
 class Mux:
