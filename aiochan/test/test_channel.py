@@ -384,3 +384,124 @@ async def test_go():
     r = go(af, 2, threadsafe=True)
     assert 2 == await r.get()
     assert r.closed
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    def work(n):
+        return n * 2
+
+    c.parallel_pipe(10, work, d)
+
+    assert list(range(0, 20, 2)) == await d.collect(10)
+
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    def work(n):
+        return n * 2
+
+    c.parallel_pipe(2, work, d)
+    assert list(range(0, 200, 2)) == await d.collect(100)
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_unordered():
+    import time
+    import random
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    def work(n):
+        time.sleep(random.uniform(0, 0.05))
+        return n * 2
+
+    c.parallel_pipe_unordered(10, work, d)
+
+    assert set(range(0, 20, 2)) == set(await d.collect(10))
+
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    def work(n):
+        time.sleep(random.uniform(0, 0.0001))
+        return n * 2
+
+    c.parallel_pipe_unordered(2, work, d)
+    assert set(range(0, 200, 2)) == set(await d.collect(100))
+
+
+def process_work(n):
+    return n * 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    c.parallel_pipe(10, process_work, d, mode='process')
+
+    assert list(range(0, 20, 2)) == await d.collect(10)
+
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    def work(n):
+        return n * 2
+
+    c.parallel_pipe(2, work, d)
+    assert list(range(0, 200, 2)) == await d.collect(100)
+
+
+def process_slow_work(n):
+    import time
+    import random
+    time.sleep(random.uniform(0, 0.05))
+    return n * 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process_unordered():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    c.parallel_pipe_unordered(10, process_slow_work, d, mode='process')
+
+    assert set(range(0, 20, 2)) == set(await d.collect(10))
+
+
+@pytest.mark.asyncio
+async def test_select_works_at_all():
+    c = Chan().add(42).close()
+
+    assert (42, c) == await select(c)
+
+
+@pytest.mark.asyncio
+async def test_select_default():
+    c = Chan(1)
+
+    assert (42, None) == await select(c, default=42)
+
+
+@pytest.mark.asyncio
+async def test_select_puts():
+    f_hits = 0
+    e_hits = 0
+    for _ in range(100):
+        f = Chan().add(1).close()
+        e = Chan(1)
+
+        r, rc = await select(f, (e, 2))
+        if rc is f:
+            f_hits += 1
+        elif rc is e:
+            e_hits += 1
+        assert (rc is f and r == 1) or (rc is e and r is True)
+    # there is a 2/(2^100) chance that the following assertion become false
+    # even though the program is correct
+    assert (f_hits > 0) and (e_hits > 0)

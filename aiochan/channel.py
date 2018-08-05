@@ -355,7 +355,16 @@ class Chan:
         return item_gen()
 
     def parallel_pipe(self, n, f, out=None, mode='thread', **kwargs):
-        assert mode in 'thread', 'process'
+        """
+        note: if mode == thread, then f should be a top-level function (no closure)
+        :param n:
+        :param f:
+        :param out:
+        :param mode:
+        :param kwargs:
+        :return:
+        """
+        assert mode in ('thread', 'process')
         if out is None:
             out = Chan()
 
@@ -364,19 +373,29 @@ class Chan:
         else:
             executor = ProcessPoolExecutor(max_workers=n, **kwargs)
 
-        results = Chan(n)
+        results = Chan(n, loop=self.loop)
 
         async def job_in():
             async for v in self:
                 res = self.loop.create_future()
+
+                def wrapper(res):
+                    def put_result(rft):
+                        r = rft.result()
+                        self.loop.call_soon_threadsafe(functools.partial(res.set_result, r))
+
+                    return put_result
+
                 ft = executor.submit(f, v)
-                ft.add_done_callback(lambda rft: res.set_result(rft.result()))
+                ft.add_done_callback(wrapper(res))
                 await results.put(res)
+            results.close()
             executor.shutdown(wait=False)
 
         async def job_out():
-            async for ft in results:
-                if not await out.put(await ft):
+            async for rc in results:
+                r = await rc
+                if not await out.put(r):
                     break
 
         self.loop.create_task(job_out())
@@ -385,7 +404,7 @@ class Chan:
         return out
 
     def parallel_pipe_unordered(self, n, f, out=None, mode='thread', **kwargs):
-        assert mode in 'thread', 'process'
+        assert mode in ('thread', 'process')
         if out is None:
             out = Chan()
 
@@ -397,7 +416,12 @@ class Chan:
         async def job_in():
             async for v in self:
                 ft = executor.submit(f, v)
-                ft.add_done_callback(lambda rft: out.put_nowait(rft.result(), immediate_only=False))
+
+                def put_result(rft):
+                    r = rft.result()
+                    self.loop.call_soon_threadsafe(functools.partial(out.put_nowait, r, immediate_only=False))
+
+                ft.add_done_callback(put_result)
             executor.shutdown(wait=False)
 
         self.loop.create_task(job_in())
