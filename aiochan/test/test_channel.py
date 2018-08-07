@@ -1,12 +1,14 @@
-import time
-import random
-import pytest
 import asyncio
+import random
+import threading
+import time
+
+import pytest
 
 import aiochan.channel
 import aiochan.util
-from aiochan.buffers import *
 from aiochan import *
+from aiochan.buffers import *
 
 aiochan.channel.DEBUG_FLAG = True
 
@@ -551,3 +553,52 @@ async def test_context():
     with Chan(1) as c:
         await c.put(1)
     assert c.closed
+
+
+_local_data = threading.local()
+
+
+@pytest.mark.asyncio
+async def test_fake_initializer():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    def work(n):
+        try:
+            _local_data.count += 1
+        except:
+            _local_data.count = 1
+            _local_data.process = lambda x: x * 2
+        return _local_data.count, _local_data.process(n)
+
+    c.parallel_pipe(10, work, d)
+    r = await d.collect(100)
+    rv = [v[1] for v in r]
+    rc = sum(v[0] for v in r)
+    assert list(range(0, 200, 2)) == rv
+    assert rc < 5050
+
+
+_p_local_data = threading.local()
+
+
+def _p_work(n):
+    try:
+        _p_local_data.count += 1
+    except:
+        _p_local_data.count = 1
+        _p_local_data.process = lambda x: x * 2
+    return _p_local_data.count, _p_local_data.process(n)
+
+
+@pytest.mark.asyncio
+async def test_fake_initializer_process():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    c.parallel_pipe(10, _p_work, d, mode='process')
+    r = await d.collect(100)
+    rv = [v[1] for v in r]
+    rc = sum(v[0] for v in r)
+    assert list(range(0, 200, 2)) == rv
+    assert rc < 5055
