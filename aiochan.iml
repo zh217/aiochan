@@ -9,8 +9,12 @@
   <component name="PackageRequirementsSettings">
     <option name="requirementsPath" value="" />
   </component>
+  <component name="ReSTService">
+    <option name="workdir" value="C:\Users\amade\aiochan\doc" />
+    <option name="DOC_DIR" value="C:\Users\amade\aiochan\doc" />
+  </component>
   <component name="TestRunnerService">
-    <option name="projectConfiguration" value="py.test" />
-    <option name="PROJECT_TEST_RUNNER" value="py.test" />
+    <option name="projectConfiguration" value="pytest" />
+    <option name="PROJECT_TEST_RUNNER" value="pytest" />
   </component>
 </module>

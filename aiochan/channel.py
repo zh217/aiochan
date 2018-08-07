@@ -8,7 +8,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
-from .util import FnHandler, SelectFlag, SelectHandler
+from ._util import FnHandler, SelectFlag, SelectHandler
 
 DEBUG_FLAG = False
 
@@ -17,8 +17,30 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               's': buffers.SlidingBuffer,
               'p': buffers.PromiseBuffer}
 
+__all__ = ('Chan',
+           'select',
+           'merge',
+           'zip',
+           'combine_latest',
+           'Mux',
+           'Dup',
+           'Pub',
+           'go')
+
 MAX_OP_QUEUE_SIZE = 1024
+"""
+The maximum pending puts or pending takes for a channel.
+
+Usually you should leave this option as it is. If you find yourself receiving exceptions due to put/get queue size
+exceeding limits, you should consider using appropriate :mod:`aiochan.buffers` when creating the channels.
+"""
+
 MAX_DIRTY_SIZE = 256
+"""
+The size of cancelled operations in put/get queues before a cleanup is triggered (an operation can only become cancelled
+due to the :meth:`aiochan.channel.select` or operations using it, or in other words, there is no direct user control of
+cancellation).
+"""
 
 
 class Chan:
@@ -28,6 +50,13 @@ class Chan:
     __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
 
     def __init__(self, buffer=None, buffer_size=None, *, loop=None, name=None):
+        """
+        creating a fuck
+        :param buffer:
+        :param buffer_size:
+        :param loop:
+        :param name:
+        """
         self._name = name
         self.loop = loop or asyncio.get_event_loop()
         try:
@@ -51,10 +80,6 @@ class Chan:
         else:
             self._dirty_gets += 1
             # print('notified get', self._dirty_gets)
-
-    @property
-    def closed(self):
-        return self._closed.is_set()
 
     def _dispatch(self, f, value=None):
         if f is None:
@@ -181,21 +206,6 @@ class Chan:
             self._gets.append(handler)
             return None
 
-    def close(self):
-        if self._closed.is_set():
-            return
-        while True:
-            try:
-                getter = self._gets.popleft()
-                if getter.active:
-                    val = self._buf.take() if self._buf and self._buf.can_take else None
-                    self._dispatch(getter.commit(), val)
-            except IndexError:
-                self._dirty_gets = 0
-                break
-        self._closed.set()
-        return self
-
     def __enter__(self):
         return self
 
@@ -217,16 +227,32 @@ class Chan:
                    f'closed={self.closed})'
         return f'Chan<{self._name} {id(self)}>'
 
+    def put(self, val):
+        """
+        **Coroutine**. Put a value into the channel. `val` cannot be `None`.
+
+        Returns `True` if the op succeeds before the channel is closed, `False` if the op is applied to a then-closed
+        channel.
+        """
+        ft = self.loop.create_future()
+        ret = self._put(val, FnHandler(ft, blockable=True))
+        if ret is not None:
+            ft = self.loop.create_future()
+            ft.set_result(ret[0])
+        return ft
+
     def put_nowait(self, val, cb=None, *, immediate_only=True):
         """
-        put val into the channel but do not wait.
-        :type self: Chan
-        :param self:
-        :param val: value to put.
-        :param cb: callback to execute if the put operation is queued, passing True if the put finally succeeds, False
-        if the channel is closed before put succeeds. Cannot be supplied when immediate_only is True.
-        :param immediate_only: if True, do not attempt to queue the put if it cannot succeed immediately.
-        :return: True if the put succeeds immediately, False if the channel is already closed, None otherwise.
+        Put `val` into the channel synchronously.
+
+        If `immediate_only` is `True`, the operation will not be queued if it cannot complete immediately.
+
+        When `immediate_only` is `False`, `cb` can be optionally provided, which will be called when the put op
+        eventually completes, with a single argument`True` or `False` depending on whether the channel is closed
+        at the time of completion of the put op. `cb` cannot be supplied when `immediate_only` is `True`.
+
+        Returns `True` if the put succeeds immediately, `False` if the channel is already closed, `None` if the
+        operation is queued.
         """
         if immediate_only:
             assert cb is None, 'cb must be None if immediate_only is True'
@@ -244,26 +270,23 @@ class Chan:
             self._dispatch(cb, ret[0])
         return ret[0]
 
-    def put(self, val):
-        """
-        asynchronously put value into the channel
-        :type self: Chan
-        :param self:
-        :param val: the value to put
-        :return: future holding the result of the put: True if the put succeeds, False if the channel is closed before
-        succeeding.
-        """
-        ft = self.loop.create_future()
-        ret = self._put(val, FnHandler(ft, blockable=True))
-        if ret is not None:
-            ft = self.loop.create_future()
-            ft.set_result(ret[0])
-        return ft
-
     def add(self, *vals):
         for v in vals:
             self.put_nowait(v, immediate_only=False)
         return self
+
+    def get(self):
+        """
+        Asynchronously getting value from the channel.
+        :type self: Chan
+        :return: a future holding the value, or None if the channel is closed before succeeding.
+        """
+        ft = self.loop.create_future()
+        ret = self._get(FnHandler(ft, blockable=True))
+        if ret is not None:
+            ft = self.loop.create_future()
+            ft.set_result(ret[0])
+        return ft
 
     def get_nowait(self, cb=None, *, immediate_only=True):
         """
@@ -294,18 +317,36 @@ class Chan:
 
         return None
 
-    def get(self):
+    def close(self):
         """
-        Asynchronously getting value from the channel.
-        :type self: Chan
-        :return: a future holding the value, or None if the channel is closed before succeeding.
+        Close the channel.
+
+        After this method is called, further puts to this channel will complete immediately without doing anything.
+        Further gets will yield values in pending puts or buffer. After pending puts and buffer are both drained,
+        gets will complete immediately with *None* as the result.
+
+        Closing an already closed channel is an no-op.
         """
-        ft = self.loop.create_future()
-        ret = self._get(FnHandler(ft, blockable=True))
-        if ret is not None:
-            ft = self.loop.create_future()
-            ft.set_result(ret[0])
-        return ft
+        if self._closed.is_set():
+            return
+        while True:
+            try:
+                getter = self._gets.popleft()
+                if getter.active:
+                    val = self._buf.take() if self._buf and self._buf.can_take else None
+                    self._dispatch(getter.commit(), val)
+            except IndexError:
+                self._dirty_gets = 0
+                break
+        self._closed.set()
+        return self
+
+    @property
+    def closed(self):
+        """
+        *True* if channel is already closed, *False* otherwise.
+        """
+        return self._closed.is_set()
 
     async def _pipe_worker(self, out):
         async for v in self:

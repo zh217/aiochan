@@ -6,7 +6,7 @@ import time
 import pytest
 
 import aiochan.channel
-import aiochan.util
+import aiochan._util
 from aiochan import *
 from aiochan.buffers import *
 
@@ -121,12 +121,12 @@ async def test_limit_async_get_nowait_and_put_nowait():
         c.get_nowait(lambda _: _, immediate_only=False)
 
     c = Chan()
-    flag = aiochan.util.SelectFlag()
+    flag = aiochan._util.SelectFlag()
     for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         if i % 2 == 0:
-            c._put(i, aiochan.util.FnHandler(None, True))
+            c._put(i, aiochan._util.FnHandler(None, True))
         else:
-            c._put(i, aiochan.util.SelectHandler(None, flag))
+            c._put(i, aiochan._util.SelectHandler(None, flag))
     assert c._dirty_puts == 0
     flag.commit(None)
     assert c._dirty_puts == 512
@@ -144,14 +144,14 @@ async def test_limit_async_get_nowait_and_put_nowait():
     assert results == list(range(0, 1024, 2)) + ['last']
 
     c = Chan()
-    flag = aiochan.util.SelectFlag()
+    flag = aiochan._util.SelectFlag()
     results = []
 
     def loop(i):
         if i % 2 == 0:
-            c._get(aiochan.util.FnHandler(lambda v: results.append((i, v)), True))
+            c._get(aiochan._util.FnHandler(lambda v: results.append((i, v)), True))
         else:
-            c._get(aiochan.util.SelectHandler(lambda v: results.append((i, v)), flag))
+            c._get(aiochan._util.SelectHandler(lambda v: results.append((i, v)), flag))
 
     for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         loop(i)

@@ -9,6 +9,11 @@ class FixedLengthBuffer:
         self._queue = collections.deque()
 
     def add(self, el):
+        """
+        adding shit
+        :param el:
+        :return:
+        """
         self._queue.append(el)
 
     def take(self):
