@@ -576,6 +576,7 @@ async def test_fake_initializer():
     rv = [v[1] for v in r]
     rc = sum(v[0] for v in r)
     assert list(range(0, 200, 2)) == rv
+    assert rc > 100
     assert rc < 5050
 
 
@@ -601,4 +602,5 @@ async def test_fake_initializer_process():
     rv = [v[1] for v in r]
     rc = sum(v[0] for v in r)
     assert list(range(0, 200, 2)) == rv
+    assert rc > 100
     assert rc < 5055
