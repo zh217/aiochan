@@ -5,7 +5,6 @@ import numbers
 import operator
 import queue
 import random
-import sys
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -457,6 +456,8 @@ class Chan:
 
     def pub(self, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
+
+
 #
 #     def map(self, f):
 #         pass
@@ -766,12 +767,7 @@ class Pub:
                 if val is None:
                     break
 
-                # noinspection PyBroadException
-                try:
-                    topic = topic_fn(val)
-                except Exception as ex:
-                    print(ex, file=sys.stderr)
-                    continue
+                topic = topic_fn(val)
 
                 try:
                     m = self._mults[topic]

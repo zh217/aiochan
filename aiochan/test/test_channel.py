@@ -1,3 +1,5 @@
+import time
+import random
 import pytest
 import asyncio
 
@@ -405,6 +407,9 @@ async def test_parallel_pipe():
 
     assert list(range(0, 20, 2)) == await d.collect(10)
 
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_big():
     c = Chan().add(*range(100)).close()
     d = Chan()
 
@@ -417,8 +422,6 @@ async def test_parallel_pipe():
 
 @pytest.mark.asyncio
 async def test_parallel_pipe_unordered():
-    import time
-    import random
     c = Chan().add(*range(10)).close()
     d = Chan()
 
@@ -430,6 +433,9 @@ async def test_parallel_pipe_unordered():
 
     assert set(range(0, 20, 2)) == set(await d.collect(10))
 
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_unordered_big():
     c = Chan().add(*range(100)).close()
     d = Chan()
 
@@ -454,13 +460,13 @@ async def test_parallel_pipe_process():
 
     assert list(range(0, 20, 2)) == await d.collect(10)
 
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process_big():
     c = Chan().add(*range(100)).close()
     d = Chan()
 
-    def work(n):
-        return n * 2
-
-    c.parallel_pipe(2, work, d)
+    c.parallel_pipe(2, process_work, d)
     assert list(range(0, 200, 2)) == await d.collect(100)
 
 
