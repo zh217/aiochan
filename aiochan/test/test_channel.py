@@ -468,7 +468,7 @@ async def test_parallel_pipe_process_big():
     c = Chan().add(*range(100)).close()
     d = Chan()
 
-    c.parallel_pipe(2, process_work, d)
+    c.parallel_pipe(2, process_work, d, mode='process')
     assert list(range(0, 200, 2)) == await d.collect(100)
 
 
