@@ -529,7 +529,7 @@ def test_sync_op():
     loop = asyncio.new_event_loop()
 
     c = Chan(loop=loop)
-    g = c.to_generator(10)
+    g = c.to_iterable(10)
 
     async def work():
         for i in range(10):

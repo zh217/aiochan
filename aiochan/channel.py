@@ -5,6 +5,7 @@ import numbers
 import operator
 import queue
 import random
+import typing as t
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -27,7 +28,7 @@ __all__ = ('Chan',
            'Pub',
            'go')
 
-MAX_OP_QUEUE_SIZE = 1024
+MAX_OP_QUEUE_SIZE: int = 1024
 """
 The maximum pending puts or pending takes for a channel.
 
@@ -35,7 +36,7 @@ Usually you should leave this option as it is. If you find yourself receiving ex
 exceeding limits, you should consider using appropriate :mod:`aiochan.buffers` when creating the channels.
 """
 
-MAX_DIRTY_SIZE = 256
+MAX_DIRTY_SIZE: int = 256
 """
 The size of cancelled operations in put/get queues before a cleanup is triggered (an operation can only become cancelled
 due to the :meth:`aiochan.channel.select` or operations using it, or in other words, there is no direct user control of
@@ -45,18 +46,21 @@ cancellation).
 
 class Chan:
     """
-    a channel
+    creating a fuck
+
+    :param buffer:
+    :param buffer_size:
+    :param loop:
+    :param name:
     """
     __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
 
-    def __init__(self, buffer=None, buffer_size=None, *, loop=None, name=None):
-        """
-        creating a fuck
-        :param buffer:
-        :param buffer_size:
-        :param loop:
-        :param name:
-        """
+    def __init__(self,
+                 buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
+                 buffer_size: t.Optional[int] = None,
+                 *,
+                 loop: t.Optional[asyncio.AbstractEventLoop] = None,
+                 name: t.Optional[str] = None):
         self._name = name
         self.loop = loop or asyncio.get_event_loop()
         try:
@@ -215,7 +219,11 @@ class Chan:
     def __aiter__(self):
         return _chan_aitor(self)
 
-    async def join(self):
+    async def join(self) -> None:
+        """
+
+        :return:
+        """
         await self._closed.wait()
 
     def __repr__(self):
@@ -227,12 +235,13 @@ class Chan:
                    f'closed={self.closed})'
         return f'Chan<{self._name} {id(self)}>'
 
-    def put(self, val):
+    def put(self, val: t.Any) -> t.Awaitable[bool]:
         """
-        **Coroutine**. Put a value into the channel. `val` cannot be `None`.
+        **Coroutine**. Put a value into the channel.
 
-        Returns `True` if the op succeeds before the channel is closed, `False` if the op is applied to a then-closed
-        channel.
+        :param val: value to put into the channel. Cannot be `None`.
+        :return: Awaitable of `True` if the op succeeds before the channel is closed, `False` if the op is applied to a
+                 then-closed channel.
         """
         ft = self.loop.create_future()
         ret = self._put(val, FnHandler(ft, blockable=True))
@@ -241,7 +250,8 @@ class Chan:
             ft.set_result(ret[0])
         return ft
 
-    def put_nowait(self, val, cb=None, *, immediate_only=True):
+    def put_nowait(self, val: t.Any, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True) -> t.Optional[
+        bool]:
         """
         Put `val` into the channel synchronously.
 
@@ -270,16 +280,21 @@ class Chan:
             self._dispatch(cb, ret[0])
         return ret[0]
 
-    def add(self, *vals):
+    def add(self, *vals: t.Any) -> 'Chan':
+        """
+
+        :param vals:
+        :return:
+        """
         for v in vals:
             self.put_nowait(v, immediate_only=False)
         return self
 
-    def get(self):
+    def get(self) -> t.Awaitable[t.Optional[t.Any]]:
         """
-        Asynchronously getting value from the channel.
-        :type self: Chan
-        :return: a future holding the value, or None if the channel is closed before succeeding.
+        **Coroutine**. Get a value of of the channel.
+
+        :return: An awaitable holding the obtained value, or of `None` if the channel is closed before succeeding.
         """
         ft = self.loop.create_future()
         ret = self._get(FnHandler(ft, blockable=True))
@@ -288,7 +303,7 @@ class Chan:
             ft.set_result(ret[0])
         return ft
 
-    def get_nowait(self, cb=None, *, immediate_only=True):
+    def get_nowait(self, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True):
         """
         try to get a value from the channel but do not wait.
         :type self: Chan
@@ -317,7 +332,7 @@ class Chan:
 
         return None
 
-    def close(self):
+    def close(self) -> 'Chan':
         """
         Close the channel.
 
@@ -326,6 +341,8 @@ class Chan:
         gets will complete immediately with *None* as the result.
 
         Closing an already closed channel is an no-op.
+
+        :return: `self`
         """
         if self._closed.is_set():
             return
@@ -342,9 +359,9 @@ class Chan:
         return self
 
     @property
-    def closed(self):
+    def closed(self) -> bool:
         """
-        *True* if channel is already closed, *False* otherwise.
+        :return: *True* if channel is already closed, *False* otherwise.
         """
         return self._closed.is_set()
 
@@ -354,53 +371,20 @@ class Chan:
                 break
         out.close()
 
-    def pipe(self, out=None, f=_pipe_worker):
+    def pipe(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], None] = _pipe_worker):
+        """
+
+        :param out:
+        :param f:
+        :return: self
+        """
         if out is None:
             out = Chan()
         self.loop.create_task(f(self, out))
         return out
 
-    def to_queue(self, q=None):
-        if q is None:
-            q = queue.Queue()
-
-        async def worker():
-            async for v in self:
-                q.put(v)
-            q.put(None)
-
-        self.loop.create_task(worker())
-
-        return q
-
-    async def collect(self, n=None):
-        result = []
-        if n is None:
-            async for v in self:
-                result.append(v)
-        else:
-            for _ in range(n):
-                r = await self.get()
-                if r is None:
-                    break
-                else:
-                    result.append(r)
-        return result
-
-    def to_generator(self, buffer_size=None):
-        q = self.to_queue(queue.Queue(maxsize=buffer_size))
-
-        def item_gen():
-            while True:
-                item = q.get()
-                if item is None:
-                    break
-                else:
-                    yield item
-
-        return item_gen()
-
-    def parallel_pipe(self, n, f, out=None, mode='thread', **kwargs):
+    def parallel_pipe(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
+                      mode: 'str' = 'thread', **kwargs) -> 'Chan':
         """
         note: if mode == thread, then f should be a top-level function (no closure)
         :param n:
@@ -449,7 +433,17 @@ class Chan:
 
         return out
 
-    def parallel_pipe_unordered(self, n, f, out=None, mode='thread', **kwargs):
+    def parallel_pipe_unordered(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
+                                mode: str = 'thread', **kwargs):
+        """
+
+        :param n:
+        :param f:
+        :param out:
+        :param mode:
+        :param kwargs:
+        :return:
+        """
         assert mode in ('thread', 'process')
         if out is None:
             out = Chan()
@@ -474,7 +468,7 @@ class Chan:
 
         return out
 
-    def timeout(self, seconds, *values, close=True):
+    def timeout(self, seconds: float, *values: t.Any, close: bool = True) -> 'Chan':
         """
         close chan after seconds
         :param values:
@@ -492,11 +486,83 @@ class Chan:
         self.loop.call_later(seconds, cb)
         return self
 
-    def dup(self):
+    def dup(self) -> 'Dup':
+        """
+
+        :return:
+        """
         return Dup(self)
 
-    def pub(self, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
+    def pub(self,
+            topic_fn: t.Callable[[t.Any], t.Any] = operator.itemgetter(0),
+            buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
+            buffer_size: t.Optional[int] = None) -> 'Pub':
+        """
+
+        :param topic_fn:
+        :param buffer:
+        :param buffer_size:
+        :return:
+        """
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
+
+    async def collect(self, n: t.Optional[int] = None) -> t.List[t.Any]:
+        """
+
+        :param n:
+        :return:
+        """
+        result = []
+        if n is None:
+            async for v in self:
+                result.append(v)
+        else:
+            for _ in range(n):
+                r = await self.get()
+                if r is None:
+                    break
+                else:
+                    result.append(r)
+        return result
+
+    def to_queue(self, q: queue.Queue = None) -> queue.Queue:
+        """
+
+        :param q:
+        :return:
+        """
+        if q is None:
+            q = queue.Queue()
+
+        async def worker():
+            async for v in self:
+                q.put(v)
+            q.put(None)
+
+        self.loop.create_task(worker())
+
+        return q
+
+    def to_iterable(self, buffer_size: t.Optional[int] = None) -> t.Iterable[t.Any]:
+        """
+
+        :param buffer_size:
+        :return:
+        """
+        q = self.to_queue(queue.Queue(maxsize=buffer_size))
+
+        def item_gen():
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                else:
+                    yield item
+
+        return item_gen()
+
+    def __iter__(self):
+        return self.to_iterable()
 
 
 #
@@ -562,14 +628,18 @@ async def _chan_aitor(chan):
             yield ret
 
 
-def select(*chan_ops, priority=False, default=None, loop=None):
+def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
+           priority: bool = False,
+           default: t.Optional[t.Any] = None,
+           loop: t.Optional[asyncio.AbstractEventLoop] = None) -> t.Awaitable[t.Optional[t.Any]]:
     """
     Asynchronously completes at most one operation in chan_ops
+
     :param chan_ops: operations, each is either a channel in which a get operation is attempted, or a tuple
-    (chan, val) in which a put operation is attempted.
+           (chan, val) in which a put operation is attempted.
     :param priority: if True, the operations will be tried serially, else the order is random
     :param default: if not None, do not queue the operations if they cannot be completed immediately, instead return
-    a future containing SelectResult(val=default, chan=None).
+           a future containing SelectResult(val=default, chan=None).
     :param loop: asyncio loop to run on
     :return: a function containing SelectResult(val=result, chan=succeeded_chan)
     """
@@ -605,7 +675,18 @@ def select(*chan_ops, priority=False, default=None, loop=None):
     return ft
 
 
-def merge(*chans, loop=None, buffer=None, buffer_size=None):
+def merge(*chans: Chan,
+          loop: t.Optional[asyncio.AbstractEventLoop] = None,
+          buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
+          buffer_size: t.Optional[int] = None) -> Chan:
+    """
+
+    :param chans:
+    :param loop:
+    :param buffer:
+    :param buffer_size:
+    :return:
+    """
     loop = loop or asyncio.get_event_loop()
     out = Chan(buffer=buffer, buffer_size=buffer_size, loop=loop)
 

@@ -5,7 +5,14 @@ import functools
 from .channel import Chan
 
 
-def pipe_interthread(c1, c2):
+def pipe_interthread(c1: Chan, c2: Chan) -> None:
+    """
+
+    :param c1:
+    :param c2:
+    :return:
+    """
+
     async def worker():
         async for v in c1:
             c2.loop.call_soon_threadsafe(c2.put_nowait, c2, v, immediate_only=False)
@@ -15,6 +22,10 @@ def pipe_interthread(c1, c2):
 
 
 class ThreadRunner:
+    """
+
+    """
+
     def __init__(self, coro_fn, loop=None, in_buffer_size=None, out_buffer_size=None):
         loop = loop or asyncio.new_event_loop()
         self.loop = loop
@@ -35,6 +46,10 @@ class ThreadRunner:
         self._queue_thread = None
 
     def start(self):
+        """
+
+        :return:
+        """
         assert not self._run
         self._run = True
 
@@ -62,6 +77,10 @@ class ThreadRunner:
         return self
 
     def stop(self):
+        """
+
+        :return:
+        """
         self._in_q.put(None)
 
     def __enter__(self):
@@ -72,13 +91,30 @@ class ThreadRunner:
         self.stop()
 
     def send(self, item, block=True, timeout=None):
+        """
+
+        :param item:
+        :param block:
+        :param timeout:
+        :return:
+        """
         self._in_q.put(item, block=block, timeout=timeout)
 
     def recv(self, block=True, timeout=None):
+        """
+
+        :param block:
+        :param timeout:
+        :return:
+        """
         return self._out_q.get(block=block, timeout=timeout)
 
     @property
     def out(self):
+        """
+
+        :return:
+        """
         return self._out_q
 
     def __iter__(self):

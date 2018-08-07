@@ -1,7 +1,52 @@
 import collections
+import typing as t
+import abc
+
+
+class AbstractBuffer(abc.ABC):
+    @abc.abstractmethod
+    def __init__(self, maxsize: t.Optional[int]):
+        """
+
+        :param maxsize:
+        """
+
+    @abc.abstractmethod
+    def add(self, el: t.Any) -> None:
+        """
+
+        :param el:
+        :return:
+        """
+
+    @abc.abstractmethod
+    def take(self) -> t.Any:
+        """
+
+        :return:
+        """
+
+    @property
+    @abc.abstractmethod
+    def can_add(self) -> bool:
+        """
+
+        :return:
+        """
+
+    @property
+    @abc.abstractmethod
+    def can_take(self) -> bool:
+        """
+
+        :return:
+        """
 
 
 class FixedLengthBuffer:
+    """
+    TODO
+    """
     __slots__ = ('_maxsize', '_queue')
 
     def __init__(self, maxsize):
@@ -32,6 +77,9 @@ class FixedLengthBuffer:
 
 
 class DroppingBuffer:
+    """
+    TODO
+    """
     __slots__ = ('_maxsize', '_queue')
 
     def __init__(self, maxsize):
@@ -58,6 +106,9 @@ class DroppingBuffer:
 
 
 class SlidingBuffer:
+    """
+    TODO
+    """
     __slots__ = ('_maxsize', '_queue')
 
     def __init__(self, maxsize):
@@ -83,6 +134,9 @@ class SlidingBuffer:
 
 
 class PromiseBuffer:
+    """
+    TODO
+    """
     __slots__ = ('_val',)
 
     def __init__(self, _=None):
