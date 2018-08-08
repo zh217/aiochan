@@ -105,3 +105,20 @@ def test_promise_buffer():
     assert buffer.take() == 1
 
     assert buffer.__repr__()
+
+
+def test_it_buffer():
+    buffer = IterBuffer(range(2))
+
+    assert not buffer.can_add
+    assert buffer.can_take
+
+    assert buffer.take() == 0
+
+    assert not buffer.can_add
+    assert buffer.can_take
+
+    assert buffer.take() == 1
+
+    assert not buffer.can_add
+    assert not buffer.can_take

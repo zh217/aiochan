@@ -10,7 +10,8 @@ import aiochan.channel
 from aiochan import *
 from aiochan.buffers import *
 
-aiochan.channel.DEBUG_FLAG = True
+
+# aiochan.channel.DEBUG_FLAG = True
 
 
 async def nop(seconds=0.0):
@@ -21,7 +22,7 @@ async def nop(seconds=0.0):
 BLOCKED = '[BLOCKED]'
 
 
-def f_result(ft):
+def f_result(ft: asyncio.Future):
     return ft.result() if ft.done() else BLOCKED
 
 
@@ -107,19 +108,25 @@ async def test_put_and_get_nowait():
 
 
 @pytest.mark.asyncio
-async def test_limit_async_get_nowait_and_put_nowait():
+async def test_limit_async_get_nowait_and_put_nowait1():
     c = Chan()
     for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         c.put_nowait(i, immediate_only=False)
     with pytest.raises(AssertionError):
         c.put_nowait(42, immediate_only=False)
 
+
+@pytest.mark.asyncio
+async def test_limit_async_get_nowait_and_put_nowait2():
     c = Chan()
     for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
         c.get_nowait(lambda _: _, immediate_only=False)
     with pytest.raises(AssertionError):
         c.get_nowait(lambda _: _, immediate_only=False)
 
+
+@pytest.mark.asyncio
+async def test_limit_async_get_nowait_and_put_nowait3():
     c = Chan()
     flag = aiochan._util.SelectFlag()
     for i in range(aiochan.channel.MAX_OP_QUEUE_SIZE):
@@ -143,6 +150,9 @@ async def test_limit_async_get_nowait_and_put_nowait():
 
     assert results == list(range(0, 1024, 2)) + ['last']
 
+
+@pytest.mark.asyncio
+async def test_limit_async_get_nowait_and_put_nowait4():
     c = Chan()
     flag = aiochan._util.SelectFlag()
     results = []
@@ -197,8 +207,8 @@ async def test_offer_poll():
 @pytest.mark.asyncio
 async def test_promise_chan():
     c = Chan('p')
-    t1 = c.get()
-    t2 = c.get()
+    t1: asyncio.Future = c.get()
+    t2: asyncio.Future = c.get()
     assert not t1.done()
     await c.put('val')
     assert await t1 == 'val'
@@ -212,6 +222,25 @@ async def test_promise_chan():
     await nop()
     for _ in range(3):
         assert await c.get() == 'val'
+
+
+@pytest.mark.asyncio
+async def test_iter():
+    c = from_iter([1, 2, 3])
+    r = []
+    async for i in c:
+        r.append(i)
+    assert r == [1, 2, 3]
+    assert c.closed
+
+    c = from_range(10, 20, 2)
+    assert list(range(10, 20, 2)) == await c.collect()
+
+    c = from_range()
+    assert list(range(10)) == await c.collect(10)
+
+    c = from_range(4, -1, -1)
+    assert [4, 3, 2, 1, 0] == await c.collect()
 
 
 @pytest.mark.asyncio
@@ -398,6 +427,48 @@ async def test_go():
 
 
 @pytest.mark.asyncio
+async def test_async_pipe():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    async def work(n):
+        return n * 2
+
+    c.async_pipe(10, work, d)
+
+    assert list(range(0, 20, 2)) == await d.collect()
+
+
+@pytest.mark.asyncio
+async def test_async_pipe_big():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    async def work(n):
+        return n * 2
+
+    c.async_pipe(2, work, d)
+    assert list(range(0, 200, 2)) == await d.collect()
+
+
+@pytest.mark.asyncio
+async def test_async_pipe_unordered():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    async def work(n):
+        await asyncio.sleep(0.01)
+        return n * 2
+
+    c.async_pipe_unordered(10, work, d)
+
+    r = await d.collect()
+
+    assert set(r) == set(range(0, 200, 2))
+    assert r != list(range(0, 200, 2))
+
+
+@pytest.mark.asyncio
 async def test_parallel_pipe():
     c = Chan().add(*range(10)).close()
     d = Chan()
@@ -407,7 +478,7 @@ async def test_parallel_pipe():
 
     c.parallel_pipe(10, work, d)
 
-    assert list(range(0, 20, 2)) == await d.collect(10)
+    assert list(range(0, 20, 2)) == await d.collect()
 
 
 @pytest.mark.asyncio
@@ -419,7 +490,7 @@ async def test_parallel_pipe_big():
         return n * 2
 
     c.parallel_pipe(2, work, d)
-    assert list(range(0, 200, 2)) == await d.collect(100)
+    assert list(range(0, 200, 2)) == await d.collect()
 
 
 @pytest.mark.asyncio
@@ -433,7 +504,7 @@ async def test_parallel_pipe_unordered():
 
     c.parallel_pipe_unordered(10, work, d)
 
-    assert set(range(0, 20, 2)) == set(await d.collect(10))
+    assert set(range(0, 20, 2)) == set(await d.collect())
 
 
 @pytest.mark.asyncio
@@ -446,7 +517,7 @@ async def test_parallel_pipe_unordered_big():
         return n * 2
 
     c.parallel_pipe_unordered(2, work, d)
-    assert set(range(0, 200, 2)) == set(await d.collect(100))
+    assert set(range(0, 200, 2)) == set(await d.collect())
 
 
 def process_work(n):
@@ -460,7 +531,7 @@ async def test_parallel_pipe_process():
 
     c.parallel_pipe(10, process_work, d, mode='process')
 
-    assert list(range(0, 20, 2)) == await d.collect(10)
+    assert list(range(0, 20, 2)) == await d.collect()
 
 
 @pytest.mark.asyncio
@@ -469,7 +540,7 @@ async def test_parallel_pipe_process_big():
     d = Chan()
 
     c.parallel_pipe(2, process_work, d, mode='process')
-    assert list(range(0, 200, 2)) == await d.collect(100)
+    assert list(range(0, 200, 2)) == await d.collect()
 
 
 def process_slow_work(n):
@@ -486,7 +557,7 @@ async def test_parallel_pipe_process_unordered():
 
     c.parallel_pipe_unordered(10, process_slow_work, d, mode='process')
 
-    assert set(range(0, 20, 2)) == set(await d.collect(10))
+    assert set(range(0, 20, 2)) == set(await d.collect())
 
 
 @pytest.mark.asyncio
@@ -604,3 +675,104 @@ async def test_fake_initializer_process():
     assert list(range(0, 200, 2)) == rv
     assert rc > 100
     assert rc < 5055
+
+
+@pytest.mark.asyncio
+async def test_map():
+    c = from_range(10).map(lambda v: v * 2)
+    assert list(range(0, 20, 2)) == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_reduce():
+    c = from_range(101).reduce(lambda acc, v: acc + v)
+    assert 5050 == await c.get()
+
+    c = from_range(100).reduce(lambda acc, v: acc + v, 100)
+    assert 5050 == await c.get()
+
+    c = Chan().close().reduce(lambda acc, v: acc + v)
+    assert (await c.get()) is None
+
+
+@pytest.mark.asyncio
+async def test_scan():
+    c = from_range(11).scan(lambda acc, v: acc + v)
+    assert [0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55] == await c.collect()
+
+    c = from_range(11).scan(lambda acc, v: acc + v, 0)
+    assert [0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55] == await c.collect()
+
+    c = Chan().close().scan(lambda acc, v: acc + v)
+    assert [] == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_filter():
+    c = from_range(100).filter(lambda v: v % 2 == 0)
+    assert list(range(0, 100, 2)) == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_distinct():
+    c = Chan().add(1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 5, 5, 5).close().distinct()
+    assert [1, 2, 3, 4, 5] == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_take():
+    c = from_range()
+    assert list(range(10)) == await c.take(10).collect()
+
+
+@pytest.mark.asyncio
+async def test_drop():
+    c = from_range(10)
+    assert list(range(5, 10)) == await c.drop(5).collect()
+
+
+@pytest.mark.asyncio
+async def test_take_while():
+    c = from_range()
+    assert list(range(10)) == await c.take_while(lambda v: v < 10).collect()
+
+
+@pytest.mark.asyncio
+async def test_drop_while():
+    c = from_range(10)
+    assert list(range(5, 10)) == await c.drop_while(lambda v: v < 5).collect()
+
+
+@pytest.mark.asyncio
+async def test_tick_tock():
+    c = tick_tock(0.001)
+    assert list(range(1, 11)) == await c.collect(10)
+    c.close()
+
+
+@pytest.mark.asyncio
+async def test_zip():
+    a = from_iter([1, 2, 3, 4])
+    b = from_iter(['a', 'b', 'c'])
+    c = from_iter(['x', 'y', 'z', 'w'])
+    out = zip_chans(a, b, c)
+    assert [[1, 'a', 'x'], [2, 'b', 'y'], [3, 'c', 'z'], [4, None, 'w']] == await out.collect()
+
+
+@pytest.mark.asyncio
+async def test_combine_latest():
+    a = Chan(name='a')
+    b = Chan(name='b')
+    c = Chan(name='c')
+    out = combine_latest(a, b, c, buffer=1)
+    await a.put(1)
+    assert [1, None, None] == await out.get()
+    a.close()
+    await b.put(2)
+    assert [1, 2, None] == await out.get()
+    await c.put(3)
+    assert [1, 2, 3] == await out.get()
+    b.close()
+    c.close()
+    await nop()
+    assert out.closed
