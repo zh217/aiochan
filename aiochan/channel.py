@@ -392,7 +392,7 @@ class Chan:
                 break
         out.close()
 
-    def pipe(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], t.Coroutine] = _pipe_worker):
+    def async_apply(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], t.Coroutine] = _pipe_worker):
         """
 
         :param out:
@@ -683,7 +683,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def filter(self, f, *, out=None, close=True):
         """
@@ -702,7 +702,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def take(self, n, *, out=None, close=True):
         """
@@ -724,7 +724,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def take_while(self, f, *, out=None, close=True):
         """
@@ -744,7 +744,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def drop(self, n, *, out=None, close=True):
         """
@@ -766,7 +766,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def drop_while(self, f, *, out=None, close=True):
         """
@@ -789,7 +789,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def distinct(self, *, out=None, close=True):
         """
@@ -809,7 +809,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def reduce(self, f, init=None, *, out=None, close=True):
         """
@@ -836,7 +836,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
     def scan(self, f, init=None, *, out=None, close=True):
         """
@@ -864,7 +864,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.pipe(out, worker)
+        return self.async_apply(out, worker)
 
 
 #     def delay(self, t):

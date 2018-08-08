@@ -306,7 +306,7 @@ async def test_async_iterator():
 @pytest.mark.asyncio
 async def test_pipe_and_list():
     c = Chan().add(*range(5)).close()
-    o = c.pipe()
+    o = c.async_apply()
     assert list(range(5)) == await o.collect()
 
     c = Chan().add(*range(5)).close()
@@ -318,7 +318,7 @@ async def test_pipe_and_list():
         o.close()
 
     o = Chan()
-    c.pipe(o, proc)
+    c.async_apply(o, proc)
     assert list(range(0, 10)) == await o.collect()
 
 
@@ -457,7 +457,7 @@ async def test_async_pipe_unordered():
     d = Chan()
 
     async def work(n):
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(random.uniform(0, 0.05))
         return n * 2
 
     c.async_pipe_unordered(10, work, d)
@@ -748,6 +748,7 @@ async def test_tick_tock():
     c = tick_tock(0.001)
     assert list(range(1, 11)) == await c.collect(10)
     c.close()
+    await nop(0.01)
 
 
 @pytest.mark.asyncio
