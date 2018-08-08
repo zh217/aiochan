@@ -22,8 +22,11 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
 __all__ = ('Chan',
            'select',
            'merge',
-           'zip',
+           'from_iter',
+           'from_range',
+           'zip_chans',
            'combine_latest',
+           'tick_tock',
            'Mux',
            'Dup',
            'Pub',
@@ -47,23 +50,40 @@ cancellation).
 
 class Chan:
     """
-    creating a fuck
+    A channel.
 
-    :param buffer:
-    :param buffer_size:
-    :param loop:
+    :param buffer: if a :meth:`aiochan.buffers.AbstractBuffer` is given, then it will be used as the buffer. In this
+            case `buffer_size` has no effect.
+
+            If an integer is given, then a :meth:`aiochan.buffers.FixedLengthBuffer` will be created with the integer
+            value as the buffer size and used.
+
+            If the a string value of `f`, `d`, `s` or `p` is given, a :meth:`aiochan.buffers.FixedLengthBuffer`,
+            :meth:`aiochan.buffers.DroppingBuffer`,  :meth:`aiochan.buffers.SlidingBuffer` or
+            :meth:`aiochan.buffers.PromiseBuffer` will be created and used, with size given by the parameter
+            `buffer_size`.
+    :param buffer_size: see the doc for `buffer`.
+    :param loop: the asyncio loop that should be used when scheduling and creating futures. If `None`, will use the
+            current loop. If the special string value `"no_loop"` is given, then will not use a loop at all. Even
+            in this case the channel can operate if you use only :meth:`aiochan.channel.Chan.get_nowait` and
+            :meth:`aiochan.channel.Chan.put_nowait`.
     :param name:
     """
     __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
 
+    _count = 0
+
     def __init__(self,
-                 buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
-                 buffer_size: t.Optional[int] = None,
+                 buffer=None,
+                 buffer_size=None,
                  *,
                  loop: t.Optional[asyncio.AbstractEventLoop] = None,
                  name: t.Optional[str] = None):
-        self._name = name
-        self.loop = loop or asyncio.get_event_loop()
+        self._name = name or '_unk' + '_' + str(self.__class__._count)
+        if loop == 'no_loop':
+            self.loop = None
+        else:
+            self.loop = loop or asyncio.get_event_loop()
         try:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
@@ -77,6 +97,7 @@ class Chan:
         self._closed = False
         self._dirty_puts = 0
         self._dirty_gets = 0
+        self.__class__._count += 1
 
     def _notify_dirty(self, is_put):
         if is_put:
@@ -94,7 +115,8 @@ class Chan:
         elif asyncio.iscoroutinefunction(f):
             self.loop.create_task(f(value))
         else:
-            self.loop.call_soon(functools.partial(f, value))
+            f(value)
+            # self.loop.call_soon(functools.partial(f, value))
 
     def _clean_gets(self):
         self._gets = collections.deque(g for g in self._gets if g.active)
@@ -244,8 +266,8 @@ class Chan:
             ft.set_result(ret[0])
         return ft
 
-    def put_nowait(self, val: t.Any, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True) -> t.Optional[
-        bool]:
+    def put_nowait(self, val: t.Any, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True) \
+            -> t.Optional[bool]:
         """
         Put `val` into the channel synchronously.
 
@@ -276,9 +298,14 @@ class Chan:
 
     def add(self, *vals: t.Any) -> 'Chan':
         """
+        Convenient method for putting many elements to the channel. The put semantics is the same
+        as :meth:`aiochan.channel.Chan.put_nowait` with `immediate_only=False`.
 
-        :param vals:
-        :return:
+        Note that this method can potentially overflow the channel's put queue, so it is only suitable for
+        adding small number of elements.
+
+        :param vals: values to add, none of which can be `None`.
+        :return: `self`
         """
         for v in vals:
             self.put_nowait(v, immediate_only=False)
@@ -365,7 +392,7 @@ class Chan:
                 break
         out.close()
 
-    def pipe(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], None] = _pipe_worker):
+    def pipe(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], t.Coroutine] = _pipe_worker):
         """
 
         :param out:
@@ -377,8 +404,51 @@ class Chan:
         self.loop.create_task(f(self, out))
         return out
 
+    def async_pipe(self, n, f, out, *, close=True) -> 'Chan':
+        """
+
+        :param n:
+        :param f:
+        :param out:
+        :param close:
+        :return:
+        """
+        if out is None:
+            out = Chan()
+
+        jobs = Chan(n, loop=self.loop)
+        results = Chan(n, loop=self.loop)
+
+        async def job_in():
+            async for v in self:
+                res = Chan('p')
+                await jobs.put((v, res))
+                await results.put(res)
+            jobs.close()
+            results.close()
+
+        async def worker():
+            async for v, res in jobs:
+                r = await f(v)
+                await res.put(r)
+
+        async def job_out():
+            async for rc in results:
+                r = await rc.get()
+                if not await out.put(r):
+                    break
+            if close:
+                out.close()
+
+        self.loop.create_task(job_out())
+        self.loop.create_task(job_in())
+        for _ in range(n):
+            self.loop.create_task(worker())
+
+        return out
+
     def parallel_pipe(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
-                      mode: 'str' = 'thread', **kwargs) -> 'Chan':
+                      mode: 'str' = 'thread', close=True, **kwargs) -> 'Chan':
         """
         note: if mode == thread, then f should be a top-level function (no closure)
         :param n:
@@ -421,20 +491,43 @@ class Chan:
                 r = await rc
                 if not await out.put(r):
                     break
+            if close:
+                out.close()
 
         self.loop.create_task(job_out())
         self.loop.create_task(job_in())
 
         return out
 
+    def async_pipe_unordered(self, n, f, out, *, close=True):
+        if out is None:
+            out = Chan()
+
+        pending = n
+
+        async def work():
+            nonlocal pending
+            async for v in self:
+                r = await f(v)
+                await out.put(r)
+            pending -= 1
+            if pending == 0 and close:
+                out.close()
+
+        for _ in range(n):
+            self.loop.create_task(work())
+
+        return out
+
     def parallel_pipe_unordered(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
-                                mode: str = 'thread', **kwargs):
+                                mode: str = 'thread', close=True, **kwargs):
         """
 
         :param n:
         :param f:
         :param out:
         :param mode:
+        :param close:
         :param kwargs:
         :return:
         """
@@ -447,16 +540,32 @@ class Chan:
         else:
             executor = ProcessPoolExecutor(max_workers=n, **kwargs)
 
+        activity = 1
+
+        def finisher():
+            nonlocal activity
+            activity -= 1
+            if activity == 0 and close:
+                out.close()
+
         async def job_in():
             async for v in self:
+                nonlocal activity
+                activity += 1
                 ft = executor.submit(f, v)
 
                 def put_result(rft):
                     r = rft.result()
-                    self.loop.call_soon_threadsafe(functools.partial(out.put_nowait, r, immediate_only=False))
+
+                    def putter():
+                        out.put_nowait(r, immediate_only=False)
+                        finisher()
+
+                    self.loop.call_soon_threadsafe(putter)
 
                 ft.add_done_callback(put_result)
             executor.shutdown(wait=False)
+            finisher()
 
         self.loop.create_task(job_in())
 
@@ -558,39 +667,210 @@ class Chan:
     def __iter__(self):
         return self.to_iterable()
 
+    def map(self, f, *, out=None, close=True):
+        """
 
-#
-#     def map(self, f):
-#         pass
-#
-#     def reduce(self, f):
-#         pass
-#
-#     def scan(self, f):
-#         pass
-#
-#     def filter(self, f):
-#         pass
-#
+        :param close:
+        :param out:
+        :param f:
+        :return:
+        """
+
+        async def worker(inp, o):
+            async for v in inp:
+                if not await o.put(f(v)):
+                    break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def filter(self, f, *, out=None, close=True):
+        """
+
+        :param close:
+        :param out:
+        :param f:
+        :return:
+        """
+
+        async def worker(inp, o):
+            async for v in inp:
+                if f(v):
+                    if not await o.put(v):
+                        break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def take(self, n, *, out=None, close=True):
+        """
+
+        :param n:
+        :param close:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            ct = n
+            async for v in inp:
+                if not await o.put(v):
+                    break
+                ct -= 1
+                if ct == 0:
+                    break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def take_while(self, f, *, out=None, close=True):
+        """
+
+        :param f:
+        :param close:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            async for v in inp:
+                if not f(v):
+                    break
+                if not await o.put(v):
+                    break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def drop(self, n, *, out=None, close=True):
+        """
+
+        :param n:
+        :param close:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            ct = n
+            async for v in inp:
+                if ct > 0:
+                    ct -= 1
+                    continue
+                if not await o.put(v):
+                    break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def drop_while(self, f, *, out=None, close=True):
+        """
+
+        :param f:
+        :param out:
+        :param close:
+        :return:
+        """
+
+        async def worker(inp, o):
+            async for v in inp:
+                if not f(v):
+                    await o.put(v)
+                    break
+
+            async for v in inp:
+                if not await o.put(v):
+                    break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def distinct(self, *, out=None, close=True):
+        """
+
+        :param close:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            last = None
+            async for v in inp:
+                if v != last:
+                    last = v
+                    if not await o.put(v):
+                        break
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def reduce(self, f, init=None, *, out=None, close=True):
+        """
+
+        :param close:
+        :param init:
+        :param f:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            if init is None:
+                acc = await inp.get()
+                if acc is None:
+                    if close:
+                        o.close()
+                    return
+            else:
+                acc = init
+            async for v in inp:
+                acc = f(acc, v)
+            await o.put(acc)
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+    def scan(self, f, init=None, *, out=None, close=True):
+        """
+
+        :param close:
+        :param init:
+        :param f:
+        :param out:
+        :return:
+        """
+
+        async def worker(inp, o):
+            if init is None:
+                acc = await inp.get()
+                if acc is None:
+                    if close:
+                        o.close()
+                    return
+            else:
+                acc = init
+            await o.put(acc)
+            async for v in inp:
+                acc = f(acc, v)
+                await o.put(acc)
+            if close:
+                o.close()
+
+        return self.pipe(out, worker)
+
+
 #     def delay(self, t):
 #         pass
 #
 #     def debounce(self, t):
-#         pass
-#
-#     def take(self, n):
-#         pass
-#
-#     def take_while(self, f):
-#         pass
-#
-#     def drop(self, n):
-#         pass
-#
-#     def drop_while(self, f):
-#         pass
-#
-#     def distinct(self, f):
 #         pass
 #
 #     def sample(self, interval):
@@ -602,15 +882,36 @@ class Chan:
 #     def time_interval(self):
 #         pass
 #
-#     def ignore_elements(self):
-#         pass
 #
-#     def last(self):
-#         pass
-#
-#
-# def ticker():
-#     pass
+def tick_tock(seconds, immediately=True, loop=None):
+    """
+
+    :param immediately:
+    :param seconds:
+    :param loop:
+    :return:
+    """
+    loop = loop or asyncio.get_event_loop()
+    c = Chan(loop=loop)
+
+    ct = 0
+
+    async def worker():
+        nonlocal ct
+        if immediately:
+            ct += 1
+            c.put_nowait(ct, immediate_only=False)
+        while True:
+            await asyncio.sleep(seconds)
+            ct += 1
+            if c.closed:
+                break
+            if len(c._puts) == 0:
+                c.put_nowait(ct, immediate_only=False)
+
+    loop.create_task(worker())
+
+    return c
 
 
 async def _chan_aitor(chan):
@@ -622,10 +923,55 @@ async def _chan_aitor(chan):
             yield ret
 
 
+def from_iter(it: t.Iterable, *, loop: t.Optional[asyncio.AbstractEventLoop] = None) -> Chan:
+    """
+    Convert an iterable into a channel.
+
+    The channel will be closed on creation, but gets will succeed until the iterable is exhausted.
+
+    It is ok for the iterable to be unbounded.
+
+    :param it: the iterable to convert.
+    :param loop:
+    :return: the converted channel.
+    """
+    c = Chan(buffers.IterBuffer(it), loop=loop)
+    c.close()
+    return c
+
+
+def from_range(start=None, end=None, step=None, *, loop=None):
+    """
+    returns a channel that gives out consecutive numerical values.
+
+    If `start` is `None`, then the count goes from `0` to the maximum number that python can count.
+
+    If `start` and `step` are given, then the values are produced as if by `itertools.count`.
+
+    Otherwise the values are produced as if by `range`.
+
+    :param start:
+    :param end:
+    :param step:
+    :param loop:
+    :return:
+    """
+    if start is None:
+        return from_iter(itertools.count(), loop=loop)
+    if end is None and step is not None:
+        return from_iter(itertools.count(start, step), loop=loop)
+    if step is None:
+        if end is None:
+            return from_iter(range(start), loop=loop)
+        else:
+            return from_iter(range(start, end), loop=loop)
+    return from_iter(range(start, end, step), loop=loop)
+
+
 def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
            priority: bool = False,
            default: t.Optional[t.Any] = None,
-           loop: t.Optional[asyncio.AbstractEventLoop] = None) -> t.Awaitable[t.Optional[t.Any]]:
+           loop: t.Optional[asyncio.AbstractEventLoop] = None) -> t.Awaitable[t.Tuple[t.Optional[t.Any], Chan]]:
     """
     Asynchronously completes at most one operation in chan_ops
 
@@ -704,12 +1050,61 @@ def merge(*chans: Chan,
     return out
 
 
-def zip(*chans, loop=None, buffer=None, buffer_size=None):
-    pass
+def zip_chans(*chans, loop=None, buffer=None, buffer_size=None):
+    """
+
+    :param chans:
+    :param loop:
+    :param buffer:
+    :param buffer_size:
+    :return:
+    """
+    assert len(chans)
+    out = Chan(buffer, buffer_size, loop=loop)
+
+    async def worker():
+        while True:
+            batch = [await c.get() for c in chans]
+            if all(v is None for v in batch):
+                out.close()
+                break
+            await out.put(batch)
+
+    out.loop.create_task(worker())
+
+    return out
 
 
 def combine_latest(*chans, loop=None, buffer=None, buffer_size=None):
-    pass
+    """
+
+    :param chans:
+    :param loop:
+    :param buffer:
+    :param buffer_size:
+    :return:
+    """
+    assert len(chans)
+    out = Chan(buffer, buffer_size, loop=loop)
+
+    async def worker():
+        idxs = {c: i for i, c in enumerate(chans)}
+        actives = set(chans)
+        result = [None for _ in chans]
+        while True:
+            v, c = await select(*actives)
+            if v is None:
+                actives.remove(c)
+                if not actives:
+                    out.close()
+                    break
+                continue
+            result[idxs[c]] = v
+            await out.put(result.copy())
+
+    out.loop.create_task(worker())
+
+    return out
 
 
 class Mux:
