@@ -1,6 +1,6 @@
+import abc
 import collections
 import typing as t
-import abc
 
 
 class AbstractBuffer(abc.ABC):
@@ -157,3 +157,33 @@ class PromiseBuffer:
 
     def __repr__(self):
         return f'PromiseBuffer({self._val})'
+
+
+class IterBuffer:
+    """
+    A buffer that is constructed from a iterable (unbounded ones are ok). The buffer never accepts new inputs and will
+    give out items from the iterable one by one.
+    """
+
+    __slots__ = ('_iter', '_nxt')
+
+    def __init__(self, it):
+        self._iter = iter(it)
+        try:
+            self._nxt = next(self._iter)
+        except StopIteration:
+            self._nxt = None
+
+    can_add = False
+
+    @property
+    def can_take(self):
+        return self._nxt is not None
+
+    def take(self):
+        ret = self._nxt
+        try:
+            self._nxt = next(self._iter)
+        except StopIteration:
+            self._nxt = None
+        return ret
