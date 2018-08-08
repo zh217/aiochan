@@ -1,6 +1,7 @@
 import asyncio
 import collections
 import functools
+import itertools
 import numbers
 import operator
 import queue
@@ -643,11 +644,18 @@ def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
     if not priority:
         random.shuffle(chan_ops)
     ret = None
+
+    def set_result_wrap(c):
+        def set_result(v):
+            ft.set_result((v, c))
+
+        return set_result
+
     for chan_op in chan_ops:
         if isinstance(chan_op, Chan):
             # getting
             chan = chan_op
-            r = chan._get(SelectHandler(lambda v: ft.set_result((v, chan)), flag))
+            r = chan._get(SelectHandler(set_result_wrap(chan), flag))
             if r is not None:
                 ret = (r[0], chan)
                 break
@@ -655,7 +663,7 @@ def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
             # putting
             chan, val = chan_op
             # noinspection PyProtectedMember
-            r = chan._put(val, SelectHandler(lambda v: ft.set_result((v, chan)), flag))
+            r = chan._put(val, SelectHandler(set_result_wrap(chan), flag))
             if r is not None:
                 ret = (r[0], chan)
                 break
