@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-import aiochan.channel
 import aiochan._util
+import aiochan.channel
 from aiochan import *
 from aiochan.buffers import *
 
@@ -257,7 +257,7 @@ async def test_timeout():
     tout = 0.02
     start = time.time()
     c = Chan().timeout(tout)
-    await c.join()
+    await c.get()
     elapsed = time.time() - start
     assert elapsed >= tout
     # assert elapsed < tout * 1.05

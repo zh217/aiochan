@@ -73,7 +73,7 @@ class Chan:
 
         self._gets = collections.deque()
         self._puts = collections.deque()
-        self._closed = asyncio.Event(loop=self.loop)
+        self._closed = False
         self._dirty_puts = 0
         self._dirty_gets = 0
 
@@ -219,13 +219,6 @@ class Chan:
     def __aiter__(self):
         return _chan_aitor(self)
 
-    async def join(self) -> None:
-        """
-
-        :return:
-        """
-        await self._closed.wait()
-
     def __repr__(self):
         if DEBUG_FLAG:
             return f'Chan({self._name} puts={list(self._puts)}, ' \
@@ -344,8 +337,8 @@ class Chan:
 
         :return: `self`
         """
-        if self._closed.is_set():
-            return
+        if self._closed:
+            return self
         while True:
             try:
                 getter = self._gets.popleft()
@@ -355,7 +348,7 @@ class Chan:
             except IndexError:
                 self._dirty_gets = 0
                 break
-        self._closed.set()
+        self._closed = True
         return self
 
     @property
@@ -363,7 +356,7 @@ class Chan:
         """
         :return: *True* if channel is already closed, *False* otherwise.
         """
-        return self._closed.is_set()
+        return self._closed
 
     async def _pipe_worker(self, out):
         async for v in self:
