@@ -27,10 +27,12 @@ __all__ = ('Chan',
            'zip_chans',
            'combine_latest',
            'tick_tock',
+           'timeout',
            'Mux',
            'Dup',
            'Pub',
-           'go')
+           'go',
+           'run')
 
 MAX_OP_QUEUE_SIZE: int = 1024
 """
@@ -923,6 +925,15 @@ async def _chan_aitor(chan):
             yield ret
 
 
+def timeout(seconds):
+    """
+
+    :param seconds:
+    :return:
+    """
+    return Chan().timeout(seconds)
+
+
 def from_iter(it: t.Iterable, *, loop: t.Optional[asyncio.AbstractEventLoop] = None) -> Chan:
     """
     Convert an iterable into a channel.
@@ -1368,3 +1379,8 @@ def go(f, *args, loop=None, threadsafe=False, **kwargs):
         else:
             loop.call_soon(worker)
     return ch
+
+
+def run(coro, loop=None):
+    loop = loop or asyncio.get_event_loop()
+    loop.create_task(coro)
