@@ -7,6 +7,7 @@ import operator
 import queue
 import random
 import typing as t
+import threading
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -20,7 +21,7 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'p': buffers.PromiseBuffer}
 
 __all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
-           'Mux', 'Dup', 'Pub', 'go', 'run')
+           'Mux', 'Dup', 'Pub', 'go', 'go_thread')
 
 MAX_OP_QUEUE_SIZE: int = 1024
 """
@@ -1447,49 +1448,24 @@ class Pub:
         self.close()
 
 
-def go(f, *args, loop=None, threadsafe=False, **kwargs):
+def go(coro, loop=None):
     """
 
-    :param f:
-    :param args:
-    :param loop:
-    :param threadsafe:
-    :param kwargs:
+    :param coro:
     :return:
     """
-    loop = loop or asyncio.get_event_loop()
-    ch = Chan(loop=loop)
-    if asyncio.iscoroutinefunction(f):
-        async def worker():
-            res = await f(*args, **kwargs)
-            if res is not None:
-                ch.put_nowait(res)
-            ch.close()
-
-        if threadsafe:
-            asyncio.run_coroutine_threadsafe(worker(), loop)
-        else:
-            loop.create_task(worker())
-    elif callable(f):
-        def worker():
-            res = f(*args, **kwargs)
-            if res is not None:
-                ch.put_nowait(res)
-            ch.close()
-
-        if threadsafe:
-            loop.call_soon_threadsafe(worker)
-        else:
-            loop.call_soon(worker)
-    return ch
+    return asyncio.ensure_future(coro, loop=loop)
 
 
-def run(coro, loop=None):
+def go_thread(coro, loop=None):
     """
 
     :param coro:
     :param loop:
+    :param forever:
     :return:
     """
-    loop = loop or asyncio.get_event_loop()
-    loop.create_task(coro)
+    loop = loop or asyncio.new_event_loop()
+    t = threading.Thread(target=lambda _l, _c: _l.run_until_complete(_c), args=(loop, coro))
+    t.start()
+    return loop

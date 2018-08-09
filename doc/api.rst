@@ -19,9 +19,3 @@ Buffer
 
 .. automodule:: aiochan.buffers
     :members:
-
-Runner
-------
-
-.. automodule:: aiochan.runner
-    :members:

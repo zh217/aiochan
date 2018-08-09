@@ -1,4 +1,3 @@
-import asyncio
 import random
 
 from aiochan import *
@@ -14,7 +13,7 @@ async def boring(msg):
             await timeout(random.random()).get()
             i += 1
 
-    go(work)
+    go(work())
     return c
 
 
@@ -30,4 +29,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.get_event_loop().run_until_complete(main())
+    go_thread(main())

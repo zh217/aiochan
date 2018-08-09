@@ -401,29 +401,12 @@ async def test_pub_sub():
 
 @pytest.mark.asyncio
 async def test_go():
-    r = go(lambda: 1)
-    assert 1 == await r.get()
-    assert r.closed
-
     async def af(a):
         await nop()
         return a
 
-    r = go(af, 2)
-    assert 2 == await r.get()
-    assert r.closed
-
-    r = go(lambda: 1, threadsafe=True)
-    assert 1 == await r.get()
-    assert r.closed
-
-    async def af(a):
-        await nop()
-        return a
-
-    r = go(af, 2, threadsafe=True)
-    assert 2 == await r.get()
-    assert r.closed
+    r = go(af(2))
+    assert 2 == await r
 
 
 @pytest.mark.asyncio
@@ -777,3 +760,18 @@ async def test_combine_latest():
     c.close()
     await nop()
     assert out.closed
+
+
+def test_go_thread():
+    r = 0
+
+    async def worker():
+        nonlocal r
+        await nop()
+        r = 1
+
+    go_thread(worker())
+
+    time.sleep(0.01)
+
+    assert r == 1

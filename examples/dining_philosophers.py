@@ -1,4 +1,3 @@
-import asyncio
 import random
 
 from aiochan import *
@@ -56,12 +55,12 @@ if N_PHILOSOPHERS >= 1:
 
 async def think(phi_id):
     print(f'{phi_id} is philosophizing {random.choice(HOW)} ...')
-    await asyncio.sleep(random.uniform(0, MAX_THINK_TIME))
+    await timeout(random.uniform(0, MAX_THINK_TIME)).get()
 
 
 async def eat(phi_id):
     print(f'{phi_id} is eating {random.choice(HOW)} ...')
-    await asyncio.sleep(random.uniform(0, MAX_EAT_TIME))
+    await timeout(random.uniform(0, MAX_EAT_TIME)).get()
 
 
 async def return_forks(slots, forks):
@@ -125,11 +124,11 @@ async def start_dining(philosophers):
         phi_id = philosophers[idx]
         left = forks[idx]
         right = forks[(idx + 1) % n_philosophers]
-        run(dining_philosopher(phi_id, left, right, diner))
+        go(dining_philosopher(phi_id, left, right, diner))
     await dining_manager(n_philosophers, diner)
 
 
 # running the program
 
 if __name__ == '__main__':
-    asyncio.get_event_loop().run_until_complete(start_dining(PHILOSPHERS))
+    go_thread(start_dining(PHILOSPHERS))
