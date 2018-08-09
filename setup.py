@@ -4,7 +4,7 @@ setup(
     name='aiochan',
     version='0.1.1',
     packages=find_packages(),
-    python_requires='>=3.5.5',
+    python_requires='>=3.5.3',
     setup_requires=['pytest-runner'],
     tests_requires=['pytest', 'pytest-asyncio'],
     author='Ziyang Hu',
