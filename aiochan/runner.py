@@ -27,6 +27,13 @@ class ThreadRunner:
     """
 
     def __init__(self, coro_fn, loop=None, in_buffer_size=None, out_buffer_size=None):
+        """
+
+        :param coro_fn:
+        :param loop:
+        :param in_buffer_size:
+        :param out_buffer_size:
+        """
         loop = loop or asyncio.new_event_loop()
         self.loop = loop
         self._in_chan = Chan(loop=loop)

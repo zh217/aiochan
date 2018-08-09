@@ -19,20 +19,8 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               's': buffers.SlidingBuffer,
               'p': buffers.PromiseBuffer}
 
-__all__ = ('Chan',
-           'select',
-           'merge',
-           'from_iter',
-           'from_range',
-           'zip_chans',
-           'combine_latest',
-           'tick_tock',
-           'timeout',
-           'Mux',
-           'Dup',
-           'Pub',
-           'go',
-           'run')
+__all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
+           'Mux', 'Dup', 'Pub', 'go', 'run')
 
 MAX_OP_QUEUE_SIZE: int = 1024
 """
@@ -502,6 +490,14 @@ class Chan:
         return out
 
     def async_pipe_unordered(self, n, f, out, *, close=True):
+        """
+
+        :param n:
+        :param f:
+        :param out:
+        :param close:
+        :return:
+        """
         if out is None:
             out = Chan()
 
@@ -868,23 +864,52 @@ class Chan:
 
         return self.async_apply(out, worker)
 
+    def delay(self, seconds, *, out=None, close=True):
+        """
 
-#     def delay(self, t):
-#         pass
-#
-#     def debounce(self, t):
-#         pass
-#
-#     def sample(self, interval):
-#         pass
-#
-#     def window(self, interval, fn):
-#         pass
-#
-#     def time_interval(self):
-#         pass
-#
-#
+        :param seconds:
+        :param out:
+        :param close:
+        :return:
+        """
+
+        async def worker(inp, o):
+            pass
+
+        return self.async_apply(out, worker)
+
+    def debounce(self, seconds, *, out=None, close=True):
+        """
+
+        :param seconds:
+        :param out:
+        :param close:
+        :return:
+        """
+        pass
+
+    def sample(self, seconds, *, out=None, close=True):
+        """
+
+        :param seconds:
+        :param out:
+        :param close:
+        :return:
+        """
+        pass
+
+    def window(self, max_elements, max_interval, *, out=None, close=True):
+        """
+
+        :param max_elements:
+        :param max_interval:
+        :param out:
+        :param close:
+        :return:
+        """
+        pass
+
+
 def tick_tock(seconds, immediately=True, loop=None):
     """
 
@@ -1174,6 +1199,12 @@ class Mux:
         return self._out
 
     def mix(self, *chans, attrs=()):
+        """
+
+        :param chans:
+        :param attrs:
+        :return:
+        """
         attrs = {v for v in attrs if v in ('solo', 'mute', 'pause')}
         for ch in chans:
             self._chans[ch] = attrs
@@ -1181,23 +1212,41 @@ class Mux:
         return self
 
     def unmix(self, *chans):
+        """
+
+        :param chans:
+        :return:
+        """
         for ch in chans:
             self._chans.pop(ch, None)
         self._changed()
         return self
 
     def unmix_all(self):
+        """
+
+        :return:
+        """
         self._chans.clear()
         self._changed()
         return self
 
     def solo_mode(self, mode):
+        """
+
+        :param mode:
+        :return:
+        """
         assert mode in 'mute', 'solo'
         self._solo_mode = mode
         self._changed()
         return self
 
     def close(self):
+        """
+
+        :return:
+        """
         self._change_chan.close()
         return self
 
@@ -1251,23 +1300,46 @@ class Dup:
 
     @property
     def inp(self):
+        """
+
+        :return:
+        """
         return self._in
 
     def tap(self, *chs, close_when_done=True):
+        """
+
+        :param chs:
+        :param close_when_done:
+        :return:
+        """
         for ch in chs:
             self._outs[ch] = close_when_done
         return self
 
     def untap(self, *chs):
+        """
+
+        :param chs:
+        :return:
+        """
         for ch in chs:
             self._outs.pop(ch, None)
         return self
 
     def untap_all(self):
+        """
+
+        :return:
+        """
         self._outs.clear()
         return self
 
     def close(self):
+        """
+
+        :return:
+        """
         self._close_chan.close()
         return self
 
@@ -1319,11 +1391,24 @@ class Pub:
             return mult
 
     def add_sub(self, topic, *chans, close_when_done=True):
+        """
+
+        :param topic:
+        :param chans:
+        :param close_when_done:
+        :return:
+        """
         m = self._get_mult(topic)
         m.tap(*chans, close_when_done=close_when_done)
         return self
 
     def remove_sub(self, topic, *chans):
+        """
+
+        :param topic:
+        :param chans:
+        :return:
+        """
         try:
             m = self._mults[topic]
         except KeyError:
@@ -1336,11 +1421,20 @@ class Pub:
         return self
 
     def remove_all_sub(self, topic):
+        """
+
+        :param topic:
+        :return:
+        """
         m = self._mults.pop(topic, None)
         m.close()
         return self
 
     def close(self):
+        """
+
+        :return:
+        """
         self._mults.clear()
         for k in list(self._mults.keys()):
             self.remove_all_sub(k)
@@ -1354,6 +1448,15 @@ class Pub:
 
 
 def go(f, *args, loop=None, threadsafe=False, **kwargs):
+    """
+
+    :param f:
+    :param args:
+    :param loop:
+    :param threadsafe:
+    :param kwargs:
+    :return:
+    """
     loop = loop or asyncio.get_event_loop()
     ch = Chan(loop=loop)
     if asyncio.iscoroutinefunction(f):
@@ -1382,5 +1485,11 @@ def go(f, *args, loop=None, threadsafe=False, **kwargs):
 
 
 def run(coro, loop=None):
+    """
+
+    :param coro:
+    :param loop:
+    :return:
+    """
     loop = loop or asyncio.get_event_loop()
     loop.create_task(coro)
