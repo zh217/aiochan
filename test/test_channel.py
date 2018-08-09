@@ -11,9 +11,6 @@ from aiochan import *
 from aiochan.buffers import *
 
 
-# aiochan.channel.DEBUG_FLAG = True
-
-
 async def nop(seconds=0.0):
     await asyncio.sleep(seconds)
     return
@@ -207,8 +204,8 @@ async def test_offer_poll():
 @pytest.mark.asyncio
 async def test_promise_chan():
     c = Chan('p')
-    t1: asyncio.Future = c.get()
-    t2: asyncio.Future = c.get()
+    t1 = c.get()
+    t2 = c.get()
     assert not t1.done()
     await c.put('val')
     assert await t1 == 'val'

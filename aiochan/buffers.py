@@ -5,14 +5,14 @@ import typing as t
 
 class AbstractBuffer(abc.ABC):
     @abc.abstractmethod
-    def __init__(self, maxsize: t.Optional[int]):
+    def __init__(self, maxsize):
         """
 
         :param maxsize:
         """
 
     @abc.abstractmethod
-    def add(self, el: t.Any) -> None:
+    def add(self, el):
         """
 
         :param el:
@@ -20,7 +20,7 @@ class AbstractBuffer(abc.ABC):
         """
 
     @abc.abstractmethod
-    def take(self) -> t.Any:
+    def take(self):
         """
 
         :return:
@@ -28,7 +28,7 @@ class AbstractBuffer(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def can_add(self) -> bool:
+    def can_add(self):
         """
 
         :return:
@@ -36,7 +36,7 @@ class AbstractBuffer(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def can_take(self) -> bool:
+    def can_take(self):
         """
 
         :return:
@@ -72,9 +72,6 @@ class FixedLengthBuffer:
     def can_take(self):
         return bool(len(self._queue))
 
-    def __repr__(self):
-        return f'FixedLengthBuffer({self._maxsize}, {list(self._queue)})'
-
 
 class DroppingBuffer:
     """
@@ -101,9 +98,6 @@ class DroppingBuffer:
     def can_take(self):
         return bool(len(self._queue))
 
-    def __repr__(self):
-        return f'DroppingBuffer({self._maxsize}, {list(self._queue)})'
-
 
 class SlidingBuffer:
     """
@@ -129,9 +123,6 @@ class SlidingBuffer:
     def can_take(self):
         return bool(len(self._queue))
 
-    def __repr__(self):
-        return f'SlidingBuffer({self._maxsize}, {list(self._queue)})'
-
 
 class PromiseBuffer:
     """
@@ -154,9 +145,6 @@ class PromiseBuffer:
     @property
     def can_take(self):
         return self._val is not None
-
-    def __repr__(self):
-        return f'PromiseBuffer({self._val})'
 
 
 class IterBuffer:

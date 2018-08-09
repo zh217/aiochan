@@ -16,9 +16,6 @@ class FnHandler:
     def commit(self):
         return self._f
 
-    def __repr__(self):
-        return f'FnHandler(f={self._f}, active={self.active})'
-
 
 class SelectFlag:
     __slots__ = ('active', '_handlers')
@@ -36,9 +33,6 @@ class SelectFlag:
                 h.notify_inactive()
         del self._handlers
         self.active = False
-
-    def __repr__(self):
-        return f'SelectFlag({self.active})'
 
 
 class SelectHandler:
@@ -65,6 +59,3 @@ class SelectHandler:
     def commit(self):
         self._flag.commit(self)
         return self._f
-
-    def __repr__(self):
-        return f'SelectHandler(f={self._f}, active={self.active})'

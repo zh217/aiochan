@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name='aiochan',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(),
-    python_requires='>=3.6',
+    python_requires='>=3.5',
     setup_requires=['pytest-runner'],
     tests_requires=['pytest', 'pytest-asyncio'],
     author='Ziyang Hu',

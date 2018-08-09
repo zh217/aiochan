@@ -6,14 +6,11 @@ import numbers
 import operator
 import queue
 import random
-import typing as t
 import threading
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
 from ._util import FnHandler, SelectFlag, SelectHandler
-
-DEBUG_FLAG = False
 
 _buf_types = {'f': buffers.FixedLengthBuffer,
               'd': buffers.DroppingBuffer,
@@ -23,7 +20,7 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
 __all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
            'Mux', 'Dup', 'Pub', 'go', 'go_thread')
 
-MAX_OP_QUEUE_SIZE: int = 1024
+MAX_OP_QUEUE_SIZE = 1024
 """
 The maximum pending puts or pending takes for a channel.
 
@@ -31,7 +28,7 @@ Usually you should leave this option as it is. If you find yourself receiving ex
 exceeding limits, you should consider using appropriate :mod:`aiochan.buffers` when creating the channels.
 """
 
-MAX_DIRTY_SIZE: int = 256
+MAX_DIRTY_SIZE = 256
 """
 The size of cancelled operations in put/get queues before a cleanup is triggered (an operation can only become cancelled
 due to the :meth:`aiochan.channel.select` or operations using it, or in other words, there is no direct user control of
@@ -68,8 +65,8 @@ class Chan:
                  buffer=None,
                  buffer_size=None,
                  *,
-                 loop: t.Optional[asyncio.AbstractEventLoop] = None,
-                 name: t.Optional[str] = None):
+                 loop=None,
+                 name=None):
         self._name = name or '_unk' + '_' + str(self.__class__._count)
         if loop == 'no_loop':
             self.loop = None
@@ -160,8 +157,8 @@ class Chan:
             if self._dirty_puts >= MAX_DIRTY_SIZE:
                 self._clean_puts()
             assert len(self._puts) < MAX_OP_QUEUE_SIZE, \
-                f'No more than {MAX_OP_QUEUE_SIZE} pending puts are ' + \
-                f'allowed on a single channel. Consider using a windowed buffer.'
+                'No more than ' + str(MAX_OP_QUEUE_SIZE) + ' pending puts are ' + \
+                'allowed on a single channel. Consider using a windowed buffer.'
             handler.queue(self, True)
             self._puts.append((handler, val))
             return None
@@ -218,8 +215,8 @@ class Chan:
             if self._dirty_gets >= MAX_DIRTY_SIZE:
                 self._clean_gets()
             assert len(self._gets) < MAX_OP_QUEUE_SIZE, \
-                f'No more than {MAX_OP_QUEUE_SIZE} pending gets ' + \
-                f'are allowed on a single channel'
+                'No more than ' + str(MAX_OP_QUEUE_SIZE) + ' pending gets ' + \
+                'are allowed on a single channel'
             handler.queue(self, False)
             self._gets.append(handler)
             return None
@@ -231,18 +228,12 @@ class Chan:
         self.close()
 
     def __aiter__(self):
-        return _chan_aitor(self)
+        return ChanIterator(self)
 
     def __repr__(self):
-        if DEBUG_FLAG:
-            return f'Chan({self._name} puts={list(self._puts)}, ' \
-                   f'gets={list(self._gets)}, ' \
-                   f'buffer={self._buf}, ' \
-                   f'dirty={self._dirty_gets}g{self._dirty_puts}p, ' \
-                   f'closed={self.closed})'
-        return f'Chan<{self._name} {id(self)}>'
+        return 'Chan<' + self._name + str(id(self)) + '>'
 
-    def put(self, val: t.Any) -> t.Awaitable[bool]:
+    def put(self, val):
         """
         **Coroutine**. Put a value into the channel.
 
@@ -257,8 +248,7 @@ class Chan:
             ft.set_result(ret[0])
         return ft
 
-    def put_nowait(self, val: t.Any, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True) \
-            -> t.Optional[bool]:
+    def put_nowait(self, val, cb=None, *, immediate_only=True):
         """
         Put `val` into the channel synchronously.
 
@@ -287,7 +277,7 @@ class Chan:
             self._dispatch(cb, ret[0])
         return ret[0]
 
-    def add(self, *vals: t.Any) -> 'Chan':
+    def add(self, *vals):
         """
         Convenient method for putting many elements to the channel. The put semantics is the same
         as :meth:`aiochan.channel.Chan.put_nowait` with `immediate_only=False`.
@@ -302,7 +292,7 @@ class Chan:
             self.put_nowait(v, immediate_only=False)
         return self
 
-    def get(self) -> t.Awaitable[t.Optional[t.Any]]:
+    def get(self):
         """
         **Coroutine**. Get a value of of the channel.
 
@@ -315,7 +305,7 @@ class Chan:
             ft.set_result(ret[0])
         return ft
 
-    def get_nowait(self, cb: t.Optional[t.Callable] = None, *, immediate_only: bool = True):
+    def get_nowait(self, cb=None, *, immediate_only=True):
         """
         try to get a value from the channel but do not wait.
         :type self: Chan
@@ -344,7 +334,7 @@ class Chan:
 
         return None
 
-    def close(self) -> 'Chan':
+    def close(self):
         """
         Close the channel.
 
@@ -371,7 +361,7 @@ class Chan:
         return self
 
     @property
-    def closed(self) -> bool:
+    def closed(self):
         """
         :return: *True* if channel is already closed, *False* otherwise.
         """
@@ -383,7 +373,7 @@ class Chan:
                 break
         out.close()
 
-    def async_apply(self, out: 'Chan' = None, f: t.Callable[['Chan', 'Chan'], t.Coroutine] = _pipe_worker):
+    def async_apply(self, out=None, f=_pipe_worker):
         """
 
         :param out:
@@ -395,7 +385,7 @@ class Chan:
         self.loop.create_task(f(self, out))
         return out
 
-    def async_pipe(self, n, f, out, *, close=True) -> 'Chan':
+    def async_pipe(self, n, f, out, *, close=True):
         """
 
         :param n:
@@ -438,8 +428,8 @@ class Chan:
 
         return out
 
-    def parallel_pipe(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
-                      mode: 'str' = 'thread', close=True, **kwargs) -> 'Chan':
+    def parallel_pipe(self, n, f, out=None,
+                      mode='thread', close=True, **kwargs):
         """
         note: if mode == thread, then f should be a top-level function (no closure)
         :param n:
@@ -519,8 +509,8 @@ class Chan:
 
         return out
 
-    def parallel_pipe_unordered(self, n: int, f: t.Callable[[t.Any], t.Any], out: t.Optional['Chan'] = None,
-                                mode: str = 'thread', close=True, **kwargs):
+    def parallel_pipe_unordered(self, n, f, out=None,
+                                mode='thread', close=True, **kwargs):
         """
 
         :param n:
@@ -571,7 +561,7 @@ class Chan:
 
         return out
 
-    def timeout(self, seconds: float, *values: t.Any, close: bool = True) -> 'Chan':
+    def timeout(self, seconds, *values, close=True):
         """
         close chan after seconds
         :param values:
@@ -589,7 +579,7 @@ class Chan:
         self.loop.call_later(seconds, cb)
         return self
 
-    def dup(self) -> 'Dup':
+    def dup(self):
         """
 
         :return:
@@ -597,9 +587,9 @@ class Chan:
         return Dup(self)
 
     def pub(self,
-            topic_fn: t.Callable[[t.Any], t.Any] = operator.itemgetter(0),
-            buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
-            buffer_size: t.Optional[int] = None) -> 'Pub':
+            topic_fn=operator.itemgetter(0),
+            buffer=None,
+            buffer_size=None):
         """
 
         :param topic_fn:
@@ -609,7 +599,7 @@ class Chan:
         """
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
 
-    async def collect(self, n: t.Optional[int] = None) -> t.List[t.Any]:
+    async def collect(self, n=None):
         """
 
         :param n:
@@ -628,7 +618,7 @@ class Chan:
                     result.append(r)
         return result
 
-    def to_queue(self, q: queue.Queue = None) -> queue.Queue:
+    def to_queue(self, q=None):
         """
 
         :param q:
@@ -646,7 +636,7 @@ class Chan:
 
         return q
 
-    def to_iterable(self, buffer_size: t.Optional[int] = None) -> t.Iterable[t.Any]:
+    def to_iterable(self, buffer_size=None):
         """
 
         :param buffer_size:
@@ -933,13 +923,20 @@ def tick_tock(seconds, immediately=True, loop=None):
     return c
 
 
-async def _chan_aitor(chan):
-    while True:
-        ret = await chan.get()
+class ChanIterator:
+    __slots__ = ('_chan',)
+
+    def __init__(self, chan):
+        self._chan = chan
+
+    async def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        ret = await self._chan.get()
         if ret is None:
-            break
-        else:
-            yield ret
+            raise StopAsyncIteration
+        return ret
 
 
 def timeout(seconds):
@@ -951,7 +948,7 @@ def timeout(seconds):
     return Chan().timeout(seconds)
 
 
-def from_iter(it: t.Iterable, *, loop: t.Optional[asyncio.AbstractEventLoop] = None) -> Chan:
+def from_iter(it, *, loop=None):
     """
     Convert an iterable into a channel.
 
@@ -996,10 +993,10 @@ def from_range(start=None, end=None, step=None, *, loop=None):
     return from_iter(range(start, end, step), loop=loop)
 
 
-def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
-           priority: bool = False,
-           default: t.Optional[t.Any] = None,
-           loop: t.Optional[asyncio.AbstractEventLoop] = None) -> t.Awaitable[t.Tuple[t.Optional[t.Any], Chan]]:
+def select(*chan_ops,
+           priority=False,
+           default=None,
+           loop=None):
     """
     Asynchronously completes at most one operation in chan_ops
 
@@ -1050,10 +1047,10 @@ def select(*chan_ops: t.Union[Chan, t.Tuple[Chan, t.Any]],
     return ft
 
 
-def merge(*chans: Chan,
-          loop: t.Optional[asyncio.AbstractEventLoop] = None,
-          buffer: t.Union[str, int, buffers.AbstractBuffer, None] = None,
-          buffer_size: t.Optional[int] = None) -> Chan:
+def merge(*chans,
+          loop=None,
+          buffer=None,
+          buffer_size=None):
     """
 
     :param chans:
@@ -1092,7 +1089,9 @@ def zip_chans(*chans, loop=None, buffer=None, buffer_size=None):
 
     async def worker():
         while True:
-            batch = [await c.get() for c in chans]
+            batch = []
+            for c in chans:
+                batch.append(await c.get())
             if all(v is None for v in batch):
                 out.close()
                 break
