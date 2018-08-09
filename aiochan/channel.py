@@ -446,6 +446,7 @@ class Chan:
         :param f:
         :param out:
         :param mode:
+        :param close:
         :param kwargs:
         :return:
         """
@@ -464,10 +465,10 @@ class Chan:
             async for v in self:
                 res = self.loop.create_future()
 
-                def wrapper(res):
+                def wrapper(_res):
                     def put_result(rft):
                         r = rft.result()
-                        self.loop.call_soon_threadsafe(functools.partial(res.set_result, r))
+                        self.loop.call_soon_threadsafe(functools.partial(_res.set_result, r))
 
                     return put_result
 
@@ -865,50 +866,40 @@ class Chan:
 
         return self.async_apply(out, worker)
 
-    def delay(self, seconds, *, out=None, close=True):
+    def debounce(self, seconds, *, out=None, close=True):
         """
+        Release elements that has been put into the channel into the output channel if at least `seconds` have passed
+        since any previous put operations. If the channel is closed, the last put value will be released immediately
+        if it has not been released before.
 
-        :param seconds:
-        :param out:
-        :param close:
-        :return:
+        :param seconds: time since last put operations that must have passed before release
+        :param out: if given, will be used as the output channel
+        :param close: close the output channel when the input is closed
+        :return: the output channel containing the released values
         """
 
         async def worker(inp, o):
-            pass
+            tout = Chan()
+            last = None
+            while True:
+                el, c = await select(tout, inp)
+                if c is tout:
+                    tout = Chan()
+                    if last is not None:
+                        await o.put(last)
+                        last = None
+                else:
+                    if el is None:
+                        if last is not None:
+                            await o.put(last)
+                        break
+                    else:
+                        tout = timeout(seconds)
+                        last = el
+            if close:
+                o.close()
 
         return self.async_apply(out, worker)
-
-    def debounce(self, seconds, *, out=None, close=True):
-        """
-
-        :param seconds:
-        :param out:
-        :param close:
-        :return:
-        """
-        pass
-
-    def sample(self, seconds, *, out=None, close=True):
-        """
-
-        :param seconds:
-        :param out:
-        :param close:
-        :return:
-        """
-        pass
-
-    def window(self, max_elements, max_interval, *, out=None, close=True):
-        """
-
-        :param max_elements:
-        :param max_interval:
-        :param out:
-        :param close:
-        :return:
-        """
-        pass
 
 
 def tick_tock(seconds, immediately=True, loop=None):
@@ -1452,7 +1443,8 @@ def go(coro, loop=None):
     """
 
     :param coro:
-    :return:
+    :param loop:
+    :return: An awaitable containing the result of the coroutine
     """
     return asyncio.ensure_future(coro, loop=loop)
 
@@ -1462,10 +1454,10 @@ def go_thread(coro, loop=None):
 
     :param coro:
     :param loop:
-    :param forever:
-    :return:
+    :return: `(loop, thread)`, where `loop` is the loop on which the coroutine is run, `thread` is the thread on which
+             the loop is run.
     """
     loop = loop or asyncio.new_event_loop()
-    t = threading.Thread(target=lambda _l, _c: _l.run_until_complete(_c), args=(loop, coro))
-    t.start()
-    return loop
+    thread = threading.Thread(target=lambda _l, _c: _l.run_until_complete(_c), args=(loop, coro))
+    thread.start()
+    return loop, thread

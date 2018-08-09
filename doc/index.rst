@@ -12,9 +12,8 @@ the backend.
 .. toctree::
    :maxdepth: 2
 
-   rational
+   intro
    tutorial
-   topical
    api
 
 
