@@ -721,7 +721,7 @@ def test_go_thread1():
         await asyncio.sleep(0)
         return
 
-    go_thread(run())
+    run_in_thread(run())
 
 # note about parallel_pipe and mode='process':
 # the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.

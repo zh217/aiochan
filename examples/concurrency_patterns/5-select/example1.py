@@ -40,4 +40,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    go_thread(main())
+    run_in_thread(main())

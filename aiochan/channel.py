@@ -18,7 +18,7 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'p': buffers.PromiseBuffer}
 
 __all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
-           'Mux', 'Dup', 'Pub', 'go', 'go_thread', 'run')
+           'Mux', 'Dup', 'Pub', 'go', 'run_in_thread', 'run')
 
 MAX_OP_QUEUE_SIZE = 1024
 """
@@ -1586,7 +1586,7 @@ def go(coro, loop=None):
     return asyncio.ensure_future(coro, loop=loop)
 
 
-def go_thread(coro, loop=None):
+def run_in_thread(coro, loop=None):
     """
     Spawn a coroutine in the specified loop on a background thread.  The loop will stop when the coroutine exits, and
     then the background thread will complete.

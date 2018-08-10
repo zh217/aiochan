@@ -131,4 +131,4 @@ async def start_dining(philosophers):
 # running the program
 
 if __name__ == '__main__':
-    go_thread(start_dining(PHILOSPHERS))
+    run_in_thread(start_dining(PHILOSPHERS))
