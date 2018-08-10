@@ -2,12 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
     name='aiochan',
-    version='0.1.1',
+    version='0.1.2',
     packages=find_packages(),
     platforms='any',
     classifiers=[
         'Development Status :: 4 - Beta',
-        'License :: OSI Approved :: Apache License 2.0',
+        'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
     ],
