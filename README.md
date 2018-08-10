@@ -12,3 +12,33 @@
 
 
 Under construction. Stay tuned.
+
+## What's up with the logo?
+
+It means this:
+
+```python
+async def blue_producer(c):
+    while True:
+        product = ... # do some hard work
+        await c.put(product)
+
+async def yellow_consumer(c):
+    while True:
+        result = await c.get()
+        # use result to do amazing things
+        
+async def main():
+    c = Chan()
+
+    for _ in range(3):
+        go(blue_producer(c))
+
+    for _ in range(3):
+        go(yellow_consumer(c))
+
+    ...
+
+```
+
+in other words, it is a 3-fan-in on top of a 3-fan-out. If you have read the tutorial you should know what I mean.
