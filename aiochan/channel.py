@@ -18,7 +18,7 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'p': buffers.PromiseBuffer}
 
 __all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
-           'Mux', 'Dup', 'Pub', 'go', 'go_thread')
+           'Mux', 'Dup', 'Pub', 'go', 'go_thread', 'run')
 
 MAX_OP_QUEUE_SIZE = 1024
 """
@@ -1600,3 +1600,15 @@ def go_thread(coro, loop=None):
     thread = threading.Thread(target=lambda _l, _c: _l.run_until_complete(_c), args=(loop, coro))
     thread.start()
     return loop, thread
+
+
+def run(coro, loop=None):
+    """
+    Run coroutine in loop on the current thread. Will block until the coroutine is complete.
+
+    :param coro: the coroutine to run
+    :param loop: the event loop to run the coroutine, or a newly created loop if `None`.
+    :return: `None`.
+    """
+    loop = loop or asyncio.new_event_loop()
+    loop.run_until_complete(coro)

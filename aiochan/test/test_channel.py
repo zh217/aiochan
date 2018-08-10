@@ -729,6 +729,18 @@ async def test_debounce():
 
     await nop(0.1)
 
+
+def test_go_thread():
+    async def run():
+        await asyncio.sleep(10)
+
+    go_thread(run())
+
+    with pytest.raises(AssertionError):
+        go_thread(run())
+
+    stop_go_thread()
+
 # note about parallel_pipe and mode='process':
 # the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.
 # these are brittle, and whether they pass or not depends on how the tests are run.
