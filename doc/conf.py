@@ -156,3 +156,9 @@ texinfo_documents = [
 # -- Extension configuration -------------------------------------------------
 
 autodoc_member_order = 'bysource'
+
+html_logo = '../logo.svg'
+
+
+def setup(app):
+    app.add_stylesheet('custom.css')
