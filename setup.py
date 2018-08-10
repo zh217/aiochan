@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     python_requires='>=3.5.3',
     setup_requires=['pytest-runner'],
-    tests_requires=['pytest', 'pytest-asyncio'],
+    tests_require=['pytest', 'pytest-asyncio'],
     author='Ziyang Hu',
     author_email='hu.ziyang@cantab.net',
     description='CSP-style concurrency for Python',
