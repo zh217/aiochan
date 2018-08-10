@@ -493,7 +493,7 @@ class Chan:
         first.
 
         Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
-        parallelism: the overhead is lower than `process` mode, and many blocking or slow operations (e.g. file
+        parallelism: the overhead is much lower than `process` mode, and many blocking or slow operations (e.g. file
         operations, network operations, `numpy` computations) actually release the GIL.
 
         If `f` involves no blocking or slow operation, consider using `async_pipe_unordered`.
@@ -557,7 +557,7 @@ class Chan:
         The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
 
         Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
-        parallelism: the overhead is lower than `process` mode, and many blocking or slow operations (e.g. file
+        parallelism: the overhead is much lower than `process` mode, and many blocking or slow operations (e.g. file
         operations, network operations, `numpy` computations) actually release the GIL.
 
         If `f` involves no blocking or slow operation, consider using `async_pipe`.
