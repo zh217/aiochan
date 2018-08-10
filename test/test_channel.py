@@ -282,7 +282,7 @@ async def test_timeout():
 
     tout = 0.02
     start = time.time()
-    c = Chan().timeout(tout)
+    c = timeout(tout)
     await c.get()
     elapsed = time.time() - start
     assert elapsed >= tout
@@ -315,7 +315,7 @@ async def test_pipe_and_list():
         o.close()
 
     o = Chan()
-    c.async_apply(o, proc)
+    c.async_apply(proc, o)
     assert list(range(0, 10)) == await o.collect()
 
 
@@ -745,7 +745,7 @@ async def test_combine_latest():
     a = Chan(name='a')
     b = Chan(name='b')
     c = Chan(name='c')
-    out = combine_latest(a, b, c, buffer=1)
+    out = combine_latest(a, b, c, out=Chan(1))
     await a.put(1)
     assert [1, None, None] == await out.get()
     a.close()
@@ -776,7 +776,7 @@ def test_go_thread():
 
 @pytest.mark.asyncio
 async def test_debounce():
-    c = Chan()
+    c = Chan(10)
     d = c.debounce(0.1)
 
     async def worker():
@@ -792,3 +792,5 @@ async def test_debounce():
     go(worker())
 
     assert [3, 6] == await d.collect()
+
+    await nop(0.1)

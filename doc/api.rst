@@ -1,7 +1,7 @@
-api guides
-==========
+API Reference
+=============
 
-What does **Coroutine** mean here?
+All functions and classes from :mod:`aiochan.channel` can also be imported from the top-level :mod:`aiochan` module.
 
 Channel
 -------

@@ -38,7 +38,12 @@ cancellation).
 
 class Chan:
     """
-    A channel.
+    A channel, the basic construct in CSP-style concurrency.
+
+    Channels can be used as async generators using the ``async for`` construct for async iteration of the values.
+
+    Channels can be used as context managers using the ``with`` construct: when exiting the context, the channel
+    will be closed.
 
     :param buffer: if a :meth:`aiochan.buffers.AbstractBuffer` is given, then it will be used as the buffer. In this
             case `buffer_size` has no effect.
@@ -55,7 +60,7 @@ class Chan:
             current loop. If the special string value `"no_loop"` is given, then will not use a loop at all. Even
             in this case the channel can operate if you use only :meth:`aiochan.channel.Chan.get_nowait` and
             :meth:`aiochan.channel.Chan.put_nowait`.
-    :param name:
+    :param name: used to provide more friendly debugging outputs.
     """
     __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
 
@@ -363,7 +368,7 @@ class Chan:
     @property
     def closed(self):
         """
-        :return: *True* if channel is already closed, *False* otherwise.
+        :return: whether this channel is already closed.
         """
         return self._closed
 
@@ -373,12 +378,21 @@ class Chan:
                 break
         out.close()
 
-    def async_apply(self, out=None, f=_pipe_worker):
+    def async_apply(self, f=_pipe_worker, out=None):
         """
+        Apply a coroutine function to values in the channel, giving out an arbitrary number of results into the output
+        channel and return the output value.
 
-        :param out:
-        :param f:
-        :return: self
+        :param out: the `out` channel giving to the coroutine function `f`. If `None`, a new channel with no buffer
+                  will be created.
+        :param f: a coroutine function taking two channels, `inp` and `out`. `inp` is the current channel and `out` is
+                  the given or newly created out channel. The coroutine function should take elements
+                  from `inp`, do its processing, and put the processed values into `out`.  When, how often and whether
+                  values are put into `out`, and when or whether `out` is ever closed, is up to the coroutine.
+
+                  If `f` is not given, an identity coroutine function which will just pass the values along and close
+                  `out` when `inp` is closed is used.
+        :return: the `out` channel.
         """
         if out is None:
             out = Chan()
@@ -387,12 +401,19 @@ class Chan:
 
     def async_pipe(self, n, f, out, *, close=True):
         """
+        Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
+        The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
 
-        :param n:
-        :param f:
-        :param out:
-        :param close:
-        :return:
+        If `f` involves slow or blocking operation, consider using `parallel_pipe`.
+
+        If ordering is not important, consider using `async_pipe_unordered`.
+
+        :param n: how many coroutines to spawn for processing.
+        :param f: a coroutine function accepting one input value and returning one output value. S
+                  hould never return `None`.
+        :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param close: whether to close the output channel when the input channel is closed.
+        :return: the output channel.
         """
         if out is None:
             out = Chan()
@@ -428,17 +449,65 @@ class Chan:
 
         return out
 
-    def parallel_pipe(self, n, f, out=None,
-                      mode='thread', close=True, **kwargs):
+    def async_pipe_unordered(self, n, f, out, *, close=True):
         """
-        note: if mode == thread, then f should be a top-level function (no closure)
-        :param n:
-        :param f:
-        :param out:
-        :param mode:
-        :param close:
-        :param kwargs:
-        :return:
+        Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
+        The results will be put into `out` in an unspecified order: whichever result completes first will be given
+        first.
+
+        If `f` involves slow or blocking operation, consider using `parallel_pipe_unordered`.
+
+        If ordering is not important, consider using `async_pipe`.
+
+        :param n: how many coroutines to spawn for processing.
+        :param f: a coroutine function accepting one input value and returning one output value.
+                  Should never return `None`.
+        :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param close: whether to close the output channel when the input channel is closed.
+        :return: the output channel.
+        """
+        if out is None:
+            out = Chan()
+
+        pending = n
+
+        async def work():
+            nonlocal pending
+            async for v in self:
+                r = await f(v)
+                await out.put(r)
+            pending -= 1
+            if pending == 0 and close:
+                out.close()
+
+        for _ in range(n):
+            self.loop.create_task(work())
+
+        return out
+
+    def parallel_pipe(self, n, f, out=None, mode='thread', close=True, **kwargs):
+        """
+        Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
+        The function `f` will be run in a pool executor with parallelism `n`.
+        The results will be put into `out` in an unspecified order: whichever result completes first will be given
+        first.
+
+        Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
+        parallelism: the overhead is lower than `process` mode, and many blocking or slow operations (e.g. file
+        operations, network operations, `numpy` computations) actually release the GIL.
+
+        If `f` involves no blocking or slow operation, consider using `async_pipe_unordered`.
+
+        If ordering is important, consider using `parallel_pipe`.
+
+        :param n: the parallelism of the pool executor (number of threads or number of processes).
+        :param f: a plain function accepting one input value and returning one output value. Should never return `None`.
+        :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
+                     used. Note that in the case of `process`, `f` should be a top-level function.
+        :param close: whether to close the output channel when the input channel is closed.
+        :param kwargs: theses will be given to the constructor of the pool executor.
+        :return: the output channel.
         """
         assert mode in ('thread', 'process')
         if out is None:
@@ -481,45 +550,28 @@ class Chan:
 
         return out
 
-    def async_pipe_unordered(self, n, f, out, *, close=True):
+    def parallel_pipe_unordered(self, n, f, out=None, mode='thread', close=True, **kwargs):
         """
+        Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
+        The function `f` will be run in a pool executor with parallelism `n`.
+        The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
 
-        :param n:
-        :param f:
-        :param out:
-        :param close:
-        :return:
-        """
-        if out is None:
-            out = Chan()
+        Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
+        parallelism: the overhead is lower than `process` mode, and many blocking or slow operations (e.g. file
+        operations, network operations, `numpy` computations) actually release the GIL.
 
-        pending = n
+        If `f` involves no blocking or slow operation, consider using `async_pipe`.
 
-        async def work():
-            nonlocal pending
-            async for v in self:
-                r = await f(v)
-                await out.put(r)
-            pending -= 1
-            if pending == 0 and close:
-                out.close()
+        If ordering is not important, consider using `parallel_pipe_unordered`.
 
-        for _ in range(n):
-            self.loop.create_task(work())
-
-        return out
-
-    def parallel_pipe_unordered(self, n, f, out=None,
-                                mode='thread', close=True, **kwargs):
-        """
-
-        :param n:
-        :param f:
-        :param out:
-        :param mode:
-        :param close:
-        :param kwargs:
-        :return:
+        :param n: the parallelism of the pool executor (number of threads or number of processes).
+        :param f: a plain function accepting one input value and returning one output value. Should never return `None`.
+        :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
+                     used. Note that in the case of `process`, `f` should be a top-level function.
+        :param close: whether to close the output channel when the input channel is closed.
+        :param kwargs: theses will be given to the constructor of the pool executor.
+        :return: the output channel.
         """
         assert mode in ('thread', 'process')
         if out is None:
@@ -561,49 +613,12 @@ class Chan:
 
         return out
 
-    def timeout(self, seconds, *values, close=True):
-        """
-        close chan after seconds
-        :param values:
-        :param close:
-        :param seconds:
-        :type self: Chan
-        """
-
-        def cb():
-            self.add(*values)
-            if close:
-                self.close()
-
-        # noinspection PyProtectedMember
-        self.loop.call_later(seconds, cb)
-        return self
-
-    def dup(self):
-        """
-
-        :return:
-        """
-        return Dup(self)
-
-    def pub(self,
-            topic_fn=operator.itemgetter(0),
-            buffer=None,
-            buffer_size=None):
-        """
-
-        :param topic_fn:
-        :param buffer:
-        :param buffer_size:
-        :return:
-        """
-        return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
-
     async def collect(self, n=None):
         """
+        **Coroutine**. Collect the elements in the channel into a list and return the list.
 
-        :param n:
-        :return:
+        :param n: if given, will take at most `n` elements from the channel, otherwise take until channel is closed.
+        :return: an awaitable containing the collected values.
         """
         result = []
         if n is None:
@@ -620,9 +635,10 @@ class Chan:
 
     def to_queue(self, q=None):
         """
+        Put elements from the channel onto the given queue. Useful for inter-thread communication.
 
-        :param q:
-        :return:
+        :param q: the queue. If `None`, a `queue.Queue` will be constructed.
+        :return: the queue `q`.
         """
         if q is None:
             q = queue.Queue()
@@ -638,9 +654,21 @@ class Chan:
 
     def to_iterable(self, buffer_size=None):
         """
+        Return an iterable containing the values in the channel.
 
-        :param buffer_size:
-        :return:
+        This method is a convenience provided expressly for inter-thread usage. Typically, we will have an
+        asyncio loop on a background thread producing values, and this method can be used as an escape hatch to
+        transport the produced values back to the main thread.
+
+        If your workflow consists entirely of operations within the asyncio loop, you should use the channel as an
+        async generator directly: ``async for val in ch: ...``.
+
+        This method should be called on the thread that attempts to use the values in the iterable, not on the
+        thread on which operations involving the channel is run. The `loop` argument to the channel
+        **must** be explicitly given, and should be the loop on which the channel is intended to be used.
+
+        :param buffer_size: buffering between the iterable and the channel.
+        :return: the iterable.
         """
         q = self.to_queue(queue.Queue(maxsize=buffer_size))
 
@@ -654,16 +682,14 @@ class Chan:
 
         return item_gen()
 
-    def __iter__(self):
-        return self.to_iterable()
-
     def map(self, f, *, out=None, close=True):
         """
+        Returns a channel containing `f(v)` for values `v` from the channel.
 
-        :param close:
-        :param out:
-        :param f:
-        :return:
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param f: a coroutine function receiving one element and returning one element. Cannot return `None`.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -673,34 +699,36 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
-    def filter(self, f, *, out=None, close=True):
+    def filter(self, p, *, out=None, close=True):
         """
+        Returns a channel containing values `v` from the channel for which `p(v)` is true.
 
-        :param close:
-        :param out:
-        :param f:
-        :return:
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param p: a coroutine function receiving one element and returning whether this value should be kept.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
             async for v in inp:
-                if f(v):
+                if p(v):
                     if not await o.put(v):
                         break
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def take(self, n, *, out=None, close=True):
         """
+        Returns a channel containing at most `n` values from the channel.
 
-        :param n:
-        :param close:
-        :param out:
-        :return:
+        :param n: how many values to take.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -714,35 +742,16 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
-
-    def take_while(self, f, *, out=None, close=True):
-        """
-
-        :param f:
-        :param close:
-        :param out:
-        :return:
-        """
-
-        async def worker(inp, o):
-            async for v in inp:
-                if not f(v):
-                    break
-                if not await o.put(v):
-                    break
-            if close:
-                o.close()
-
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def drop(self, n, *, out=None, close=True):
         """
+        Returns a channel containing values from the channel except the first `n` values.
 
-        :param n:
-        :param close:
-        :param out:
-        :return:
+        :param n: how many values to take.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -756,20 +765,42 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
-    def drop_while(self, f, *, out=None, close=True):
+    def take_while(self, p, *, out=None, close=True):
         """
+        Returns a channel containing values `v` from the channel until `p(v)` becomes false.
 
-        :param f:
-        :param out:
-        :param close:
-        :return:
+        :param p: a coroutine function receiving one element and returning whether this value should be kept.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
             async for v in inp:
-                if not f(v):
+                if not p(v):
+                    break
+                if not await o.put(v):
+                    break
+            if close:
+                o.close()
+
+        return self.async_apply(worker, out)
+
+    def drop_while(self, p, *, out=None, close=True):
+        """
+        Returns a channel containing values `v` from the channel after `p(v)` becomes false for the first time.
+
+        :param p: a coroutine function receiving one element and returning whether this value should be dropped.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
+        """
+
+        async def worker(inp, o):
+            async for v in inp:
+                if not p(v):
                     await o.put(v)
                     break
 
@@ -779,14 +810,15 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def distinct(self, *, out=None, close=True):
         """
+        Returns a channel containing distinct values from the channel (consecutive duplicates are dropped).
 
-        :param close:
-        :param out:
-        :return:
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -799,16 +831,19 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def reduce(self, f, init=None, *, out=None, close=True):
         """
+        Returns a channel containing the single value that is the reduce (i.e. left-fold) of the values in the channel.
 
-        :param close:
-        :param init:
-        :param f:
-        :param out:
-        :return:
+        :param f: a coroutine function taking two arguments `accumulator` and `next_value` and returning
+                  `new_accumulator`.
+        :param init: if given, will be used as the initial accumulator. If not given, the first element in the channel
+                     will be used instead.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -826,16 +861,19 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def scan(self, f, init=None, *, out=None, close=True):
         """
+        Similar to `reduce`, but all intermediate accumulators are put onto the out channel in order as well.
 
-        :param close:
-        :param init:
-        :param f:
-        :param out:
-        :return:
+        :param f: a coroutine function taking two arguments `accumulator` and `next_value` and returning
+                  `new_accumulator`.
+        :param init: if given, will be used as the initial accumulator. If not given, the first element in the channel
+                     will be used instead.
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
         """
 
         async def worker(inp, o):
@@ -854,7 +892,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
 
     def debounce(self, seconds, *, out=None, close=True):
         """
@@ -889,16 +927,40 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(out, worker)
+        return self.async_apply(worker, out)
+
+    def dup(self):
+        """
+        Create a :meth:`aiochan.channel.Dup` from the channel
+
+        :return: the duplicator
+        """
+        return Dup(self)
+
+    def pub(self,
+            topic_fn=operator.itemgetter(0),
+            buffer=None,
+            buffer_size=None):
+        """
+        Create a :meth:`aiochan.channel.Pub` from the channel
+
+        :return: the publisher
+        """
+        return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
 
 
 def tick_tock(seconds, immediately=True, loop=None):
     """
+    Returns a channel that gives out values every `seconds`.
 
-    :param immediately:
-    :param seconds:
-    :param loop:
-    :return:
+    The channel contains numbers from 1, counting how many ticks have been passed.
+
+    Note that if values are not taken from the returned channel, some ticks will be skipped.
+
+    :param immediately: if true, the first tick occurs immediately, otherwise it occurs after `seconds`.
+    :param seconds: time interval of the ticks
+    :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
+    :return: the tick channel
     """
     loop = loop or asyncio.get_event_loop()
     c = Chan(loop=loop)
@@ -939,13 +1001,24 @@ class ChanIterator:
         return ret
 
 
-def timeout(seconds):
+def timeout(seconds, loop=None):
     """
+    Returns a channel that closes itself after `seconds`.
 
-    :param seconds:
-    :return:
+    :param seconds: time before the channel is closed
+    :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
+    :return: the timeout channel
     """
-    return Chan().timeout(seconds)
+    loop = loop or asyncio.get_event_loop()
+    c = Chan(loop=loop)
+
+    async def worker():
+        await asyncio.sleep(seconds)
+        c.close()
+
+    loop.create_task(worker())
+
+    return c
 
 
 def from_iter(it, *, loop=None):
@@ -957,7 +1030,7 @@ def from_iter(it, *, loop=None):
     It is ok for the iterable to be unbounded.
 
     :param it: the iterable to convert.
-    :param loop:
+    :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
     :return: the converted channel.
     """
     c = Chan(buffers.IterBuffer(it), loop=loop)
@@ -975,11 +1048,8 @@ def from_range(start=None, end=None, step=None, *, loop=None):
 
     Otherwise the values are produced as if by `range`.
 
-    :param start:
-    :param end:
-    :param step:
-    :param loop:
-    :return:
+    :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
+    :return: the range channel
     """
     if start is None:
         return from_iter(itertools.count(), loop=loop)
@@ -1047,20 +1117,16 @@ def select(*chan_ops,
     return ft
 
 
-def merge(*chans,
-          loop=None,
-          buffer=None,
-          buffer_size=None):
+def merge(*inputs, out=None, close=True):
     """
+    Merge the elements of the input channels into a single channel containing the individual values from the inputs.
 
-    :param chans:
-    :param loop:
-    :param buffer:
-    :param buffer_size:
-    :return:
+    :param inputs: the input channels
+    :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param close: whether to close `out` when all inputs are closed.
+    :return: the ouput channel
     """
-    loop = loop or asyncio.get_event_loop()
-    out = Chan(buffer=buffer, buffer_size=buffer_size, loop=loop)
+    out = out or Chan()
 
     async def worker(chs):
         while chs:
@@ -1070,54 +1136,62 @@ def merge(*chans,
             else:
                 if not await out.put(v):
                     break
+        if close:
+            out.close()
 
-    loop.create_task(worker(set(chans)))
+    out.loop.create_task(worker(set(inputs)))
     return out
 
 
-def zip_chans(*chans, loop=None, buffer=None, buffer_size=None):
+def zip_chans(*inputs, out=None, close=True):
     """
+    Merge the elements of the input channels into a single channel containing lists of individual values from the
+    inputs. The input values are consumed in lockstep.
 
-    :param chans:
-    :param loop:
-    :param buffer:
-    :param buffer_size:
-    :return:
+    :param inputs: the input channels
+    :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param close: whether to close `out` when all inputs are closed.
+    :return: the ouput channel
     """
-    assert len(chans)
-    out = Chan(buffer, buffer_size, loop=loop)
+    assert len(inputs)
+    out = out or Chan()
 
     async def worker():
         while True:
             batch = []
-            for c in chans:
+            for c in inputs:
                 batch.append(await c.get())
             if all(v is None for v in batch):
                 out.close()
                 break
             await out.put(batch)
+        if close:
+            out.close()
 
     out.loop.create_task(worker())
 
     return out
 
 
-def combine_latest(*chans, loop=None, buffer=None, buffer_size=None):
+def combine_latest(*inputs, out, close=True):
     """
+    Merge the elements of the input channels into a single channel containing lists of individual values from the
+    inputs. The input values are consumed individually and each time a new value is consumed from any inputs, a
+    list containing the latest values from all channels will be returned. In the list, channels that has not yet
+    returned any values will have their corresponding values set to `None`.
 
-    :param chans:
-    :param loop:
-    :param buffer:
-    :param buffer_size:
-    :return:
+    :param inputs: the input channels
+    :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param close: whether to close `out` when all inputs are closed.
+    :return: the ouput channel
     """
-    assert len(chans)
-    out = Chan(buffer, buffer_size, loop=loop)
+    assert len(inputs)
+    out = out or Chan()
 
     async def worker():
-        idxs = {c: i for i, c in enumerate(chans)}
-        actives = set(chans)
-        result = [None for _ in chans]
+        idxs = {c: i for i, c in enumerate(inputs)}
+        actives = set(inputs)
+        result = [None for _ in inputs]
         while True:
             v, c = await select(*actives)
             if v is None:
@@ -1128,6 +1202,8 @@ def combine_latest(*chans, loop=None, buffer=None, buffer_size=None):
                 continue
             result[idxs[c]] = v
             await out.put(result.copy())
+        if close:
+            out.close()
 
     out.loop.create_task(worker())
 
@@ -1136,14 +1212,35 @@ def combine_latest(*chans, loop=None, buffer=None, buffer_size=None):
 
 class Mux:
     """
-    a multiplexer
+    A multiplexer: similar to :meth:`aiochan.channel.merge` but allowing finer control.
+
+    Operation modes can be specified individually for each input channel of this multiplexer, in the form of a
+    set of keywords `solo`, `mute` or `pause`.
+
+    Channels that are currently in `pause` mode will not be attempted for gets.
+
+    At any moment when a new value is available from any of the inputs, one of the following will happen, in order:
+
+    * if the input has `mute` attribute, its value will be silently dropped,
+    * if the input has `solo` attribute, its value will be put onto the output
+    * else its value will be put onto the output only if none of the input channels has the `solo` attribute. See the
+      documentation for the `solo_mode` parameter for its behaviour when its values are not used.
+
+    Multiplexers can be used as context managers that can be auto-closed on exiting the context.
+
+    :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param solo_mode: `mute` or `pause`. If `mute`, when there are any solo-mode inputs active, other inputs will
+           be muted: their values are taken but silently dropped. If `pause`, other inputs will not be attempted for
+           gets at all.
     """
     __slots__ = ('_out', '_chans', '_solo_mode', '_change_chan')
 
-    def __init__(self, out=None, loop=None):
+    def __init__(self, out=None, solo_mode='mute'):
+        assert solo_mode in ('mute', 'pause')
+        out = out or Chan()
         self._change_chan = Chan()
-        self._out = out or Chan()
-        self._solo_mode = 'mute'
+        self._out = out
+        self._solo_mode = solo_mode
         self._chans = {}
         solos = set()
         mutes = set()
@@ -1179,44 +1276,49 @@ class Mux:
                     if not await self._out.put(v):
                         break
 
-        loop = loop or asyncio.get_event_loop()
-        loop.create_task(worker())
+        out.loop.create_task(worker())
 
     def _changed(self):
         self._change_chan.put_nowait(True, immediate_only=False)
 
     @property
     def out(self):
+        """
+        :return: the output channel
+        """
         return self._out
 
-    def mix(self, *chans, attrs=()):
+    def mix(self, *inputs, modes=()):
         """
+        Add channels into the multiplexer. After adding, their values will appear in the output.
 
-        :param chans:
-        :param attrs:
-        :return:
+        :param inputs: the channels to add
+        :param modes: a set containing the attributes of the added channels.
+        :return: `self`
         """
-        attrs = {v for v in attrs if v in ('solo', 'mute', 'pause')}
-        for ch in chans:
-            self._chans[ch] = attrs
+        modes = {v for v in modes if v in ('solo', 'mute', 'pause')}
+        for ch in inputs:
+            self._chans[ch] = modes
         self._changed()
         return self
 
-    def unmix(self, *chans):
+    def unmix(self, *inputs):
         """
+        Remove inputs from the multiplexer
 
-        :param chans:
-        :return:
+        :param inputs: the inputs to remove
+        :return: `self`
         """
-        for ch in chans:
+        for ch in inputs:
             self._chans.pop(ch, None)
         self._changed()
         return self
 
     def unmix_all(self):
         """
+        Remove all inputs from the multiplexer
 
-        :return:
+        :return: `self`
         """
         self._chans.clear()
         self._changed()
@@ -1224,19 +1326,21 @@ class Mux:
 
     def solo_mode(self, mode):
         """
+        Set the solo mode of the multiplexer.
 
-        :param mode:
-        :return:
+        :param mode: `mute` or `pause`.
+        :return: `self`
         """
-        assert mode in 'mute', 'solo'
+        assert mode in ('mute', 'pause')
         self._solo_mode = mode
         self._changed()
         return self
 
     def close(self):
         """
+        Close the multiplexer
 
-        :return:
+        :return: `self`
         """
         self._change_chan.close()
         return self
@@ -1250,13 +1354,22 @@ class Mux:
 
 class Dup:
     """
-    a duplicator
+    A duplicator: takes values from the input, and gives out the same value to all outputs.
+
+    Note that duplication is performed in lockstep: if any of the outputs blocks on put, the whole operation will block.
+    Thus the outputs should use some buffering as appropriate for the situation.
+
+    When there are no output channels, values from the input channels are dropped.
+
+    Duplicators can be used as context managers.
+
+    :param inp: the input channel
     """
 
     __slots__ = ('_in', '_outs', '_close_chan')
 
-    def __init__(self, chan):
-        self._in = chan
+    def __init__(self, inp):
+        self._in = inp
         self._outs = {}
         self._close_chan = Chan()
 
@@ -1287,49 +1400,53 @@ class Dup:
                 if self._outs:
                     await dchan.get()
 
-        chan.loop.create_task(worker())
+        inp.loop.create_task(worker())
 
     @property
     def inp(self):
         """
 
-        :return:
+        :return: the input channel
         """
         return self._in
 
-    def tap(self, *chs, close_when_done=True):
+    def tap(self, *outs, close=True):
         """
+        add channels to the duplicator to receive duplicated values from the input.
 
-        :param chs:
-        :param close_when_done:
-        :return:
+        :param outs: the channels to add
+        :param close: whether to close the added channels when the input is closed
+        :return: `self`
         """
-        for ch in chs:
-            self._outs[ch] = close_when_done
+        for ch in outs:
+            self._outs[ch] = close
         return self
 
-    def untap(self, *chs):
+    def untap(self, *outs):
         """
+        remove output channels from the duplicator so that they will no longer receive values from the input.
 
-        :param chs:
-        :return:
+        :param outs: the channels to remove
+        :return: `self`
         """
-        for ch in chs:
+        for ch in outs:
             self._outs.pop(ch, None)
         return self
 
     def untap_all(self):
         """
+        remove all output channels from the duplicator.
 
-        :return:
+        :return: `self`
         """
         self._outs.clear()
         return self
 
     def close(self):
         """
+        Close the duplicator.
 
-        :return:
+        :return: `self`
         """
         self._close_chan.close()
         return self
@@ -1343,19 +1460,35 @@ class Dup:
 
 class Pub:
     """
-    a publisher
+    A publisher: similar to a duplicator but allowing for topic-based duplication.
+
+    As in the case of duplicators, the duplication process for any particular topic is processed in lockstep: i.e.
+    if any particular subscriber blocks on put, the whole operation is blocked. Hence buffers should be used in
+    appropriate situations, either globally by setting the `buffer` and `buffer_size` parameters, or individually
+    for each subscription channel.
+
+    Publishers can be used as context managers.
+
+    :param inp: the channel to be used as the source of the publication.
+    :param topic_fn: a function accepting one argument and returning one result. This will be applied to each value
+            as they come in from `inp`, and the results will be used as topics for subscription. `None` topic is
+            not allowed. If `topic_fn` is `None`, will assume the values from `inp` are tuples and the first element
+            in each tuple is the topic.
+    :param buffer: together with `buffer_size`, will be used to determine the buffering of each topic. The acceptable
+                   values are the same as for the constructor of :meth:`aiochan.channel.Chan`.
+    :param buffer_size: see above
     """
 
     __slots__ = ('_mults', '_buffer', '_buffer_size')
 
-    def __init__(self, chan, *, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
+    def __init__(self, inp, *, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
         self._buffer = buffer
         self._buffer_size = buffer_size
         self._mults = {}
 
         async def worker():
             while True:
-                val = await chan.get()
+                val = await inp.get()
                 if val is None:
                     break
 
@@ -1370,7 +1503,7 @@ class Pub:
                     self.remove_all_sub(topic)
             self.close()
 
-        chan.loop.create_task(worker())
+        inp.loop.create_task(worker())
 
     def _get_mult(self, topic):
         if topic in self._mults:
@@ -1381,31 +1514,33 @@ class Pub:
             self._mults[topic] = mult
             return mult
 
-    def add_sub(self, topic, *chans, close_when_done=True):
+    def add_sub(self, topic, *outs, close=True):
         """
+        Subscribe `outs` to `topic`.
 
-        :param topic:
-        :param chans:
-        :param close_when_done:
-        :return:
+        :param topic: the topic to subscribe
+        :param outs: the subscribing channels
+        :param close: whether to close these channels when the input is closed
+        :return: `self`
         """
         m = self._get_mult(topic)
-        m.tap(*chans, close_when_done=close_when_done)
+        m.tap(*outs, close=close)
         return self
 
-    def remove_sub(self, topic, *chans):
+    def remove_sub(self, topic, *outs):
         """
+        Stop the subscription of `outs` to `topic`.
 
-        :param topic:
-        :param chans:
-        :return:
+        :param topic: the topic to unsubscribe from
+        :param outs: the channels to unsubscribe
+        :return: `self`
         """
         try:
             m = self._mults[topic]
         except KeyError:
             pass
         else:
-            m.untap(*chans)
+            m.untap(*outs)
             # noinspection PyProtectedMember
             if not m._outs:
                 self.remove_all_sub(topic)
@@ -1413,9 +1548,10 @@ class Pub:
 
     def remove_all_sub(self, topic):
         """
+        Stop all subscriptions under a topic
 
-        :param topic:
-        :return:
+        :param topic: the topic to stop. If `None`, all subscriptions are stopped.
+        :return: `self`
         """
         m = self._mults.pop(topic, None)
         m.close()
@@ -1423,8 +1559,9 @@ class Pub:
 
     def close(self):
         """
+        close the subscription
 
-        :return:
+        :return: `self`
         """
         self._mults.clear()
         for k in list(self._mults.keys()):
@@ -1440,19 +1577,22 @@ class Pub:
 
 def go(coro, loop=None):
     """
+    Spawn a coroutine in the specified loop. The loop will stop when the coroutine exits.
 
-    :param coro:
-    :param loop:
-    :return: An awaitable containing the result of the coroutine
+    :param coro: the coroutine to spawn.
+    :param loop: the event loop to run the coroutine, or the current loop if `None`.
+    :return: An awaitable containing the result of the coroutine.
     """
     return asyncio.ensure_future(coro, loop=loop)
 
 
 def go_thread(coro, loop=None):
     """
+    Spawn a coroutine in the specified loop on a background thread.  The loop will stop when the coroutine exits, and
+    then the background thread will complete.
 
-    :param coro:
-    :param loop:
+    :param coro: the coroutine to spawn.
+    :param loop: the event loop to run the coroutine, or a newly created loop if `None`.
     :return: `(loop, thread)`, where `loop` is the loop on which the coroutine is run, `thread` is the thread on which
              the loop is run.
     """
