@@ -108,6 +108,11 @@ def test_promise_buffer():
 
 
 def test_it_buffer():
+    buffer = IterBuffer(())
+
+    assert not buffer.can_add
+    assert not buffer.can_take
+
     buffer = IterBuffer(range(2))
 
     assert not buffer.can_add

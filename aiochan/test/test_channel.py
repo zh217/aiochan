@@ -29,6 +29,7 @@ def test_has_asyncio():
 
 
 def test_channel_creation():
+    assert Chan(loop='no_loop').loop is None
     assert Chan()._buf is None
     assert isinstance(Chan(1)._buf, FixedLengthBuffer)
     assert isinstance(Chan('f', 1)._buf, FixedLengthBuffer)
@@ -376,8 +377,8 @@ async def test_pub_sub():
             return 'string'
         elif isinstance(v, numbers.Integral):
             return 'int'
-        else:
-            return 'unknown'
+        # else:
+        #     return 'unknown'
 
     p = src.pub(topic)
     p.add_sub('string', a_strs, b_strs)
@@ -522,7 +523,7 @@ async def test_select_puts():
         f = Chan().add(1).close()
         e = Chan(1)
 
-        r, rc = await select(f, (e, 2))
+        r, rc = await select(f, (e, 2), (e, 3), (e, 4))
         if rc is f:
             f_hits += 1
         elif rc is e:
@@ -693,21 +694,6 @@ async def test_combine_latest():
     assert out.closed
 
 
-def test_go_thread():
-    r = 0
-
-    async def worker():
-        nonlocal r
-        await nop()
-        r = 1
-
-    go_thread(worker())
-
-    time.sleep(0.01)
-
-    assert r == 1
-
-
 @pytest.mark.asyncio
 async def test_debounce():
     c = Chan(10)
@@ -730,16 +716,12 @@ async def test_debounce():
     await nop(0.1)
 
 
-def test_go_thread():
+def test_go_thread1():
     async def run():
-        await asyncio.sleep(10)
+        await asyncio.sleep(0)
+        return
 
     go_thread(run())
-
-    with pytest.raises(AssertionError):
-        go_thread(run())
-
-    stop_go_thread()
 
 # note about parallel_pipe and mode='process':
 # the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.
