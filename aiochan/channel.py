@@ -949,15 +949,14 @@ class Chan:
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
 
 
-def tick_tock(seconds, immediately=True, loop=None):
+def tick_tock(seconds, start_at=None, loop=None):
     """
     Returns a channel that gives out values every `seconds`.
 
     The channel contains numbers from 1, counting how many ticks have been passed.
 
-    Note that if values are not taken from the returned channel, some ticks will be skipped.
-
-    :param immediately: if true, the first tick occurs immediately, otherwise it occurs after `seconds`.
+    :param start_at: if `None`, the first tick occurs `seconds` later. If given, the first tick occurs at the given time
+                     (in float).
     :param seconds: time interval of the ticks
     :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
     :return: the tick channel
@@ -965,22 +964,17 @@ def tick_tock(seconds, immediately=True, loop=None):
     loop = loop or asyncio.get_event_loop()
     c = Chan(loop=loop)
 
+    start_time = (start_at or loop.time()) + seconds
+
     ct = 0
 
-    async def worker():
+    def tick():
         nonlocal ct
-        if immediately:
-            ct += 1
-            c.put_nowait(ct, immediate_only=False)
-        while True:
-            await asyncio.sleep(seconds)
-            ct += 1
-            if c.closed:
-                break
-            if len(c._puts) == 0:
-                c.put_nowait(ct, immediate_only=False)
+        ct += 1
+        if c.put_nowait(ct, immediate_only=False) is not False:
+            loop.call_at(start_time + seconds * ct, tick)
 
-    loop.create_task(worker())
+    loop.call_at(start_time, tick)
 
     return c
 
@@ -1009,14 +1003,9 @@ def timeout(seconds, loop=None):
     :param loop: you can optionally specify the loop on which the returned channel is intended to be used.
     :return: the timeout channel
     """
-    loop = loop or asyncio.get_event_loop()
-    c = Chan(loop=loop)
+    c = Chan(loop=loop or asyncio.get_event_loop())
 
-    async def worker():
-        await asyncio.sleep(seconds)
-        c.close()
-
-    loop.create_task(worker())
+    c.loop.call_later(seconds, c.close)
 
     return c
 
