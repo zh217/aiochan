@@ -157,7 +157,7 @@ texinfo_documents = [
 
 autodoc_member_order = 'bysource'
 
-html_logo = '../logo.svg'
+html_logo = '../logo.gif'
 
 
 def setup(app):
