@@ -8,7 +8,7 @@
 [![PyPI status](https://img.shields.io/pypi/status/aiochan.svg)](https://pypi.python.org/pypi/aiochan/)
 [![GitHub license](https://img.shields.io/github/license/zh217/aiochan.svg)](https://github.com/zh217/aiochan/blob/master/LICENSE)
 
-![logo](./logo.svg "aiochan logo")
+![logo](logo.svg "aiochan logo")
 
 
 Under construction. Stay tuned.
