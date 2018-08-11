@@ -10,12 +10,6 @@ import aiochan.channel
 from aiochan import *
 from aiochan.buffers import *
 
-
-async def nop(seconds=0.0):
-    await asyncio.sleep(seconds)
-    return
-
-
 BLOCKED = '[BLOCKED]'
 
 
@@ -267,7 +261,7 @@ async def test_coroutine_dispatch():
     c = Chan(1)
     c.put_nowait('val', cb, immediate_only=False)
 
-    await nop(0.02)
+    await asyncio.sleep(0.02)
     assert v is True
 
 
@@ -663,7 +657,7 @@ async def test_tick_tock():
     c = tick_tock(0.001)
     assert list(range(1, 11)) == await c.collect(10)
     c.close()
-    await nop(0.01)
+    await asyncio.sleep(0.01)
 
 
 @pytest.mark.asyncio
@@ -713,7 +707,7 @@ async def test_debounce():
 
     assert [3, 6] == await d.collect()
 
-    await nop(0.1)
+    await asyncio.sleep(0.1)
 
 
 def test_go_thread1():

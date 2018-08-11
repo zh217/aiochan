@@ -18,7 +18,7 @@ _buf_types = {'f': buffers.FixedLengthBuffer,
               'p': buffers.PromiseBuffer}
 
 __all__ = ('Chan', 'select', 'merge', 'from_iter', 'from_range', 'zip_chans', 'combine_latest', 'tick_tock', 'timeout',
-           'Mux', 'Dup', 'Pub', 'go', 'run_in_thread', 'run')
+           'Mux', 'Dup', 'Pub', 'go', 'nop', 'run_in_thread', 'run')
 
 MAX_OP_QUEUE_SIZE = 1024
 """
@@ -1573,6 +1573,14 @@ def go(coro, loop=None):
     :return: An awaitable containing the result of the coroutine.
     """
     return asyncio.ensure_future(coro, loop=loop)
+
+
+def nop():
+    """
+    Useful for yielding control to the scheduler.
+    :return:
+    """
+    return asyncio.sleep(0)
 
 
 def run_in_thread(coro, loop=None):
