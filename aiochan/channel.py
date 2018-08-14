@@ -1599,7 +1599,7 @@ def run_in_thread(coro, loop=None):
     return loop, thread
 
 
-def run(coro, loop=None):
+def run(coro, loop=None, timeout=None):
     """
     Run coroutine in loop on the current thread. Will block until the coroutine is complete.
 
@@ -1607,13 +1607,16 @@ def run(coro, loop=None):
     :param loop: the event loop to run the coroutine, or a newly created loop if `None`.
     :return: `None`.
     """
-    loop = loop or asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        import concurrent.futures
+    import concurrent.futures
 
-        ft = concurrent.futures.Future()
-        result = loop.create_task(coro)
-        result.add_done_callback(lambda r: ft.set_result(r))
-        return ft.result()
+    ft = concurrent.futures.Future()
+
+    loop = loop or asyncio.new_event_loop()
+
+    def runner():
+        result = loop.run_until_complete(coro)
+        ft.set_result(result)
+
+    thread = threading.Thread(target=runner)
+    thread.start()
+    return ft.result(timeout=timeout)
