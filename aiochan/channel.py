@@ -236,7 +236,7 @@ class Chan:
         return ChanIterator(self)
 
     def __repr__(self):
-        return 'Chan<' + self._name + str(id(self)) + '>'
+        return 'Chan<' + self._name + ' ' + str(id(self)) + '>'
 
     def put(self, val):
         """
