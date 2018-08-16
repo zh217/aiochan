@@ -358,7 +358,8 @@ async def test_dup():
     a = Chan(4)
     b = Chan(4)
     m = src.dup()
-    m.tap(a, b)
+    m.tap(a)
+    m.tap(b)
     src.add(0, 1, 2, 3)
     assert [0, 1, 2, 3] == await a.collect(4)
     assert [0, 1, 2, 3] == await b.collect(4)
@@ -369,7 +370,8 @@ async def test_dup():
 async def test_dup_2():
     dup = from_range(5).dup()
     inputs = [Chan(5) for i in range(3)]
-    dup.tap(*inputs)
+    for i in inputs:
+        dup.tap(i)
     for i in inputs:
         assert list(range(5)) == await i.collect()
 
@@ -392,16 +394,17 @@ async def test_pub_sub():
         #     return 'unknown'
 
     p = src.pub(topic)
-    p.add_sub('string', a_strs, b_strs)
-    p.add_sub('int', a_ints)
-    p.add_sub('int', b_ints)
+    p.sub('string', a_strs)
+    p.sub('string', b_strs)
+    p.sub('int', a_ints)
+    p.sub('int', b_ints)
     src.add(1, 'a', 2, 'b', 3, 'c')
     assert [1, 2, 3] == await a_ints.collect(3)
     assert [1, 2, 3] == await b_ints.collect(3)
     assert ['a', 'b', 'c'] == await a_strs.collect(3)
     assert ['a', 'b', 'c'] == await b_strs.collect(3)
-    p.remove_sub('int', a_ints)
-    p.remove_sub('int', b_ints)
+    p.unsub('int', a_ints)
+    p.unsub('int', b_ints)
     src.add(4, 'd', 5, 'e', 6, 'f')
     assert ['d', 'e', 'f'] == await a_strs.collect(3)
     src.close()

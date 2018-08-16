@@ -1414,29 +1414,28 @@ class Dup:
         """
         return self._in
 
-    def tap(self, *outs, close=True):
+    def tap(self, out=None, close=True):
         """
         add channels to the duplicator to receive duplicated values from the input.
 
-        :param outs: the channels to add
+        :param out: the channel to add. If `None`, an unbuffered channel will be created.
         :param close: whether to close the added channels when the input is closed
-        :return: `self`
+        :return: the output channel
         """
-        for ch in outs:
-            self._outs[ch] = close
-        return self
+        if out is None:
+            out = Chan()
+        self._outs[out] = close
+        return out
 
-    def untap(self, *outs):
+    def untap(self, out):
         """
         remove output channels from the duplicator so that they will no longer receive values from the input.
 
-        :param outs: the channels to remove
-        :return: `self`
+        :param out: the channel to remove
+        :return: the removed channel
         """
-        print('untap')
-        for ch in outs:
-            self._outs.pop(ch, None)
-        return self
+        self._outs.pop(out, None)
+        return out
 
     def untap_all(self):
         """
@@ -1505,7 +1504,7 @@ class Pub:
                     continue
 
                 if not await m.inp.put(val):
-                    self.remove_all_sub(topic)
+                    self.unsub_all(topic)
             self.close()
 
         inp.loop.create_task(worker())
@@ -1519,39 +1518,41 @@ class Pub:
             self._mults[topic] = mult
             return mult
 
-    def add_sub(self, topic, *outs, close=True):
+    def sub(self, topic, out=None, close=True):
         """
         Subscribe `outs` to `topic`.
 
         :param topic: the topic to subscribe
-        :param outs: the subscribing channels
+        :param out: the subscribing channel. If `None`, an unbuffered channel will be used.
         :param close: whether to close these channels when the input is closed
-        :return: `self`
+        :return: the subscribing channel
         """
+        if out is None:
+            out = Chan()
         m = self._get_mult(topic)
-        m.tap(*outs, close=close)
+        m.tap(out, close=close)
         return self
 
-    def remove_sub(self, topic, *outs):
+    def unsub(self, topic, out):
         """
         Stop the subscription of `outs` to `topic`.
 
         :param topic: the topic to unsubscribe from
-        :param outs: the channels to unsubscribe
-        :return: `self`
+        :param out: the channel to unsubscribe
+        :return: the unsubscribing channel
         """
         try:
             m = self._mults[topic]
         except KeyError:
             pass
         else:
-            m.untap(*outs)
+            m.untap(out)
             # noinspection PyProtectedMember
             if not m._outs:
-                self.remove_all_sub(topic)
+                self.unsub_all(topic)
         return self
 
-    def remove_all_sub(self, topic):
+    def unsub_all(self, topic):
         """
         Stop all subscriptions under a topic
 
@@ -1570,7 +1571,7 @@ class Pub:
         """
         self._mults.clear()
         for k in list(self._mults.keys()):
-            self.remove_all_sub(k)
+            self.unsub_all(k)
         return self
 
     def __enter__(self):
