@@ -1410,7 +1410,7 @@ class Dup:
                             c.close()
                     break
                 dctr = len(self._outs)
-                for c in self._outs.keys():
+                for c in list(self._outs.keys()):
                     if not c.put_nowait(val, done, immediate_only=False):
                         done(None)
                         self.untap(c)
