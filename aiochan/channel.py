@@ -1531,7 +1531,7 @@ class Pub:
             out = Chan()
         m = self._get_mult(topic)
         m.tap(out, close=close)
-        return self
+        return out
 
     def unsub(self, topic, out):
         """
@@ -1550,7 +1550,7 @@ class Pub:
             # noinspection PyProtectedMember
             if not m._outs:
                 self.unsub_all(topic)
-        return self
+        return out
 
     def unsub_all(self, topic):
         """
