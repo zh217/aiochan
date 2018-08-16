@@ -1439,6 +1439,7 @@ def run(coro, loop=None):
     :return: `None`.
     """
     import concurrent.futures
+    import time
 
     ft = concurrent.futures.Future()
 
@@ -1449,6 +1450,7 @@ def run(coro, loop=None):
         ft.set_result(result)
         for task in asyncio.Task.all_tasks(loop=loop):
             task.cancel()
+        time.sleep(0.1)
 
     thread = threading.Thread(target=runner)
     thread.start()
