@@ -8,5 +8,5 @@ python:
 install:
 - pip install -r test_req.txt
 script:
-- py.test
+- py.test --verbose --cov=./aiochan
 - codecov
