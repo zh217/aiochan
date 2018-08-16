@@ -1430,7 +1430,7 @@ def run_in_thread(coro, loop=None):
     return loop, thread
 
 
-def run(coro, loop=None, timeout=None):
+def run(coro, loop=None):
     """
     Run coroutine in loop on the current thread. Will block until the coroutine is complete.
 
@@ -1450,4 +1450,4 @@ def run(coro, loop=None, timeout=None):
 
     thread = threading.Thread(target=runner)
     thread.start()
-    return ft.result(timeout=timeout)
+    return ft.result()
