@@ -399,7 +399,7 @@ class Chan:
         self.loop.create_task(f(self, out))
         return out
 
-    def async_pipe(self, n, f, out, *, close=True):
+    def async_pipe(self, n, f, out=None, *, close=True):
         """
         Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
         The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
@@ -449,7 +449,7 @@ class Chan:
 
         return out
 
-    def async_pipe_unordered(self, n, f, out, *, close=True):
+    def async_pipe_unordered(self, n, f, out=None, *, close=True):
         """
         Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
         The results will be put into `out` in an unspecified order: whichever result completes first will be given
@@ -688,7 +688,7 @@ class Chan:
 
         :param close: whether `out` should be closed when there are no more values to be produced.
         :param out: the output channel. If `None`, one with no buffering will be created.
-        :param f: a coroutine function receiving one element and returning one element. Cannot return `None`.
+        :param f: a function receiving one element and returning one element. Cannot return `None`.
         :return: the output channel.
         """
 
@@ -707,7 +707,7 @@ class Chan:
 
         :param close: whether `out` should be closed when there are no more values to be produced.
         :param out: the output channel. If `None`, one with no buffering will be created.
-        :param p: a coroutine function receiving one element and returning whether this value should be kept.
+        :param p: a function receiving one element and returning whether this value should be kept.
         :return: the output channel.
         """
 
@@ -771,7 +771,7 @@ class Chan:
         """
         Returns a channel containing values `v` from the channel until `p(v)` becomes false.
 
-        :param p: a coroutine function receiving one element and returning whether this value should be kept.
+        :param p: a function receiving one element and returning whether this value should be kept.
         :param out: the output channel. If `None`, one with no buffering will be created.
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
@@ -792,7 +792,7 @@ class Chan:
         """
         Returns a channel containing values `v` from the channel after `p(v)` becomes false for the first time.
 
-        :param p: a coroutine function receiving one element and returning whether this value should be dropped.
+        :param p: a function receiving one element and returning whether this value should be dropped.
         :param out: the output channel. If `None`, one with no buffering will be created.
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
@@ -837,7 +837,7 @@ class Chan:
         """
         Returns a channel containing the single value that is the reduce (i.e. left-fold) of the values in the channel.
 
-        :param f: a coroutine function taking two arguments `accumulator` and `next_value` and returning
+        :param f: a function taking two arguments `accumulator` and `next_value` and returning
                   `new_accumulator`.
         :param init: if given, will be used as the initial accumulator. If not given, the first element in the channel
                      will be used instead.
@@ -867,7 +867,7 @@ class Chan:
         """
         Similar to `reduce`, but all intermediate accumulators are put onto the out channel in order as well.
 
-        :param f: a coroutine function taking two arguments `accumulator` and `next_value` and returning
+        :param f: a function taking two arguments `accumulator` and `next_value` and returning
                   `new_accumulator`.
         :param init: if given, will be used as the initial accumulator. If not given, the first element in the channel
                      will be used instead.
