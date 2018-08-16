@@ -948,6 +948,34 @@ class Chan:
         """
         return Pub(self, topic_fn=topic_fn, buffer=buffer, buffer_size=buffer_size)
 
+    def distribute(self, *outs, close=True):
+        """
+        Distribute the items in this channel to the output channels. Values will not be "lost"
+        due to being put to closed channels.
+
+        :param outs: the output channels
+        :param close: whether to close the output channels when the input closes
+        :return: self
+        """
+        outs = list(outs)
+
+        async def worker():
+            async for v in self:
+                if not outs:
+                    break
+                while True:
+                    ok, c = await select(*[(o, v) for o in outs])
+                    if ok:
+                        break
+                    else:
+                        outs.remove(c)
+            if close:
+                for o in outs:
+                    o.close()
+
+        self.loop.create_task(worker())
+        return self
+
 
 def tick_tock(seconds, start_at=None, loop=None):
     """
