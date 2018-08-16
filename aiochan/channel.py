@@ -1162,7 +1162,7 @@ def zip_chans(*inputs, out=None, close=True):
     return out
 
 
-def combine_latest(*inputs, out, close=True):
+def combine_latest(*inputs, out=None, close=True):
     """
     Merge the elements of the input channels into a single channel containing lists of individual values from the
     inputs. The input values are consumed individually and each time a new value is consumed from any inputs, a
