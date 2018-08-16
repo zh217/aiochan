@@ -1411,7 +1411,7 @@ class Dup:
                     break
                 dctr = len(self._outs)
                 for c in list(self._outs.keys()):
-                    if not c.put_nowait(val, done, immediate_only=False):
+                    if c.put_nowait(val, done, immediate_only=False) is False:
                         done(None)
                         self.untap(c)
                 if self._outs:
@@ -1446,6 +1446,7 @@ class Dup:
         :param outs: the channels to remove
         :return: `self`
         """
+        print('untap')
         for ch in outs:
             self._outs.pop(ch, None)
         return self

@@ -325,6 +325,14 @@ async def test_merge():
 
 
 @pytest.mark.asyncio
+async def test_distribute():
+    inputs = [Chan(name='inp%s' % i) for i in range(3)]
+    from_range(20).distribute(*inputs)
+    output = merge(*inputs)
+    assert set(range(20)) == set(await output.collect())
+
+
+@pytest.mark.asyncio
 async def test_mux():
     out = Chan(name='out')
     in1 = Chan(name='in1')
@@ -355,6 +363,15 @@ async def test_dup():
     assert [0, 1, 2, 3] == await a.collect(4)
     assert [0, 1, 2, 3] == await b.collect(4)
     m.close()
+
+
+@pytest.mark.asyncio
+async def test_dup_2():
+    dup = from_range(5).dup()
+    inputs = [Chan(5) for i in range(3)]
+    dup.tap(*inputs)
+    for i in inputs:
+        assert list(range(5)) == await i.collect()
 
 
 @pytest.mark.asyncio
