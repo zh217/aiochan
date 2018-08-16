@@ -1391,15 +1391,6 @@ class Dup:
         self._close_chan = Chan()
 
         async def worker():
-            dchan = Chan(1)
-            dctr = 0
-
-            def done(_):
-                nonlocal dctr
-                dctr -= 1
-                if dctr == 0:
-                    dchan.put_nowait(True, immediate_only=False)
-
             while True:
                 val, c = await select(self._close_chan, self._in, priority=True)
                 if c is self._close_chan:
@@ -1409,13 +1400,9 @@ class Dup:
                         if will_close:
                             c.close()
                     break
-                dctr = len(self._outs)
                 for c in list(self._outs.keys()):
-                    if c.put_nowait(val, done, immediate_only=False) is False:
-                        done(None)
+                    if not await c.put(val):
                         self.untap(c)
-                if self._outs:
-                    await dchan.get()
 
         inp.loop.create_task(worker())
 
