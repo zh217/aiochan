@@ -1447,6 +1447,8 @@ def run(coro, loop=None):
     def runner():
         result = loop.run_until_complete(coro)
         ft.set_result(result)
+        for task in asyncio.Task.all_tasks(loop=loop):
+            task.cancel()
 
     thread = threading.Thread(target=runner)
     thread.start()
