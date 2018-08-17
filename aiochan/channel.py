@@ -641,7 +641,7 @@ class Chan:
 
         return q
 
-    def to_iterable(self, buffer_size=None):
+    def to_iterable(self, buffer_size=1):
         """
         Return an iterable containing the values in the channel.
 
