@@ -333,26 +333,6 @@ async def test_distribute():
 
 
 @pytest.mark.asyncio
-async def test_mux():
-    out = Chan(name='out')
-    in1 = Chan(name='in1')
-    in2 = Chan(name='in2')
-    in1.add(1)
-    in2.add(2)
-    in1.add(3)
-    in2.add(4)
-    in1.add(5)
-    in1.close()
-    in2.close()
-    mx = Mux(out)
-    mx.mix(in1)
-    mx.mix(in2)
-    r = await out.collect(5)
-    assert {1, 2, 3, 4, 5, 5} == set(r)
-    mx.close()
-
-
-@pytest.mark.asyncio
 async def test_dup():
     src = Chan()
     a = Chan(4)
@@ -363,6 +343,7 @@ async def test_dup():
     src.add(0, 1, 2, 3)
     assert [0, 1, 2, 3] == await a.collect(4)
     assert [0, 1, 2, 3] == await b.collect(4)
+    m.untap_all()
     m.close()
 
 
@@ -574,13 +555,6 @@ def test_sync_op():
     assert list(range(10)) == list(g)
 
 
-@pytest.mark.asyncio
-async def test_context():
-    with Chan(1) as c:
-        await c.put(1)
-    assert c.closed
-
-
 _local_data = threading.local()
 
 
@@ -708,34 +682,41 @@ async def test_combine_latest():
     assert out.closed
 
 
-@pytest.mark.asyncio
-async def test_debounce():
-    c = Chan(10)
-    d = c.debounce(0.1)
-
-    async def worker():
-        await c.put(1)
-        await c.put(2)
-        await c.put(3)
-        await timeout(0.2).get()
-        await c.put(4)
-        await c.put(5)
-        await c.put(6)
-        c.close()
-
-    go(worker())
-
-    assert [3, 6] == await d.collect()
-
-    await asyncio.sleep(0.1)
-
-
 def test_go_thread1():
     async def run():
         await asyncio.sleep(0)
         return
 
     run_in_thread(run())
+
+
+def test_run():
+    async def afunc():
+        return 1
+
+    assert run(afunc()) == 1
+
+
+def test_without_asyncio():
+    c = Chan(1, loop='no_loop')
+    d = Chan(1, loop='no_loop')
+    put_chan = None
+
+    def put_cb(v, c):
+        nonlocal put_chan
+        put_chan = c
+
+    select((c, 1), (d, 2), cb=put_cb)
+
+    get_val = None
+
+    def get_cb(v, c):
+        nonlocal get_val
+        get_val = v
+
+    select(c, d, cb=get_cb)
+
+    assert (put_chan is c and get_val == 1) or (put_chan is d and get_val == 2)
 
 # note about parallel_pipe and mode='process':
 # the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.
