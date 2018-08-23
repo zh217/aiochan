@@ -19,22 +19,7 @@ Again, welcome! We hope you find that aiochan can boost your productivity greatl
 .. toctree::
    :maxdepth: 2
 
-   intro
    quick
    tutorial
    faq
    api
-
-
-Indices and tables
-==================
-
-.. only:: builder_html
-
-   * :ref:`genindex`
-   * :ref:`modindex`
-   * :ref:`search`
-
-.. only:: not builder_html
-
-   * :ref:`modindex`

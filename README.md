@@ -11,34 +11,72 @@
 ![logo](logo.gif "aiochan logo")
 
 
-Under construction. Stay tuned.
+Under heavy construction. Stay tuned.
+
+Aiochan is a library written to bring the wonderful idiom of CSP-style concurrency to python. The implementation is based on the battle-tested Clojure library core.async, while the API is carefully crafted to feel as pythonic as possible.
+
+## What am I getting?
+
+* Pythonic, object-oriented API that includes everything you'd expect from a CSP library
+* Fully tested
+* Fully documented
+* Guaranteed to work with Python 3.5.2 or above and PyPy 3.5 or above
+* Depends only on python's core libraries, zero external dependencies
+* Proven, efficient implementation based on Clojure's battle-tested core.async
+* Familiar semantics for users of golang's channels and Clojure's core.async channels
+* Flexible implementation that does not depend on the inner workings of asyncio at all
+* Permissively licensed
+* A beginner-friendly tutorial to get newcomers onboard as quickly as possible
+
+## Installation
+
+```bash
+pip3 install aiochan
+```
+
+## How to use
+
+Read the beginner-friendly tutorial that starts from the basics. Or if you are already experienced with golang or Clojure's core.async, start with the quick introduction and then dive into the API documentation.
+
+## Examples
+
+We have the complete set of examples from Rob Pike's concurrency patterns translated into aiochan. In addition, here is a solution to the classical dining philosophers problem.
+
+## I still don't know how to use it
+
+We are just starting out, but we will try to answer aiochan-related questions on stackoverflow as quickly as possible.
+
+## I found a bug
+
+File an issue, or if you think you can solve it, file a pull request.
 
 ## What's up with the logo?
 
-It means this:
+It is our 'hello world' example:
 
 ```python
+import aiochan as ac
+
 async def blue_producer(c):
     while True:
-        product = ... # do some hard work
+        # do some hard work
+        product = "a product made by the blue producer"
         await c.put(product)
 
 async def yellow_consumer(c):
     while True:
         result = await c.get()
         # use result to do amazing things
+        print("I've received", result)
         
 async def main():
-    c = Chan()
+    c = ac.Chan()
 
     for _ in range(3):
-        go(blue_producer(c))
+        ac.go(blue_producer(c))
 
     for _ in range(3):
-        go(yellow_consumer(c))
-
-    ...
-
+        ac.go(yellow_consumer(c))
 ```
 
-in other words, it is a 3-fan-in on top of a 3-fan-out. If you have read the tutorial you should know what I mean.
+in other words, it is a 3-fan-in on top of a 3-fan-out. If you have no idea what this is, read the tutorial.
