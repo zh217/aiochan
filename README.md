@@ -15,6 +15,10 @@ Under heavy construction. Stay tuned.
 
 Aiochan is a library written to bring the wonderful idiom of CSP-style concurrency to python. The implementation is based on the battle-tested Clojure library core.async, while the API is carefully crafted to feel as pythonic as possible.
 
+## Why?
+
+Because ...
+
 ## What am I getting?
 
 * Pythonic, object-oriented API that includes everything you'd expect from a CSP library
@@ -28,19 +32,23 @@ Aiochan is a library written to bring the wonderful idiom of CSP-style concurren
 * Permissively licensed
 * A beginner-friendly tutorial to get newcomers onboard as quickly as possible
 
-## Installation
+## How to install?
 
 ```bash
 pip3 install aiochan
 ```
 
-## How to use
+## How to use?
 
 Read the beginner-friendly tutorial that starts from the basics. Or if you are already experienced with golang or Clojure's core.async, start with the quick introduction and then dive into the API documentation.
 
+## I want to try it first
+
+The quick introduction and the beginner-friendly tutorial can both be run in jupyter notebooks, online in binders if you want.
+
 ## Examples
 
-We have the complete set of examples from Rob Pike's concurrency patterns translated into aiochan. In addition, here is a solution to the classical dining philosophers problem.
+In addition to the introduction and the tutorial, we have the complete set of examples from Rob Pike's concurrency patterns translated into aiochan. Also, here is a solution to the classical dining philosophers problem.
 
 ## I still don't know how to use it
 
