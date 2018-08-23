@@ -1,7 +1,7 @@
-A very gentle tutorial to CSP
-=============================
+A beginner-friendly tutorial
+============================
 
-We will learn how to use CSP with *aiochan*.
+In this tutorial we will learn how to use CSP with *aiochan*. We will start from the very basics.
 
 .. toctree::
    :maxdepth: 2
