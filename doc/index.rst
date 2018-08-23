@@ -20,8 +20,8 @@ Again, welcome! We hope you find that aiochan can boost your productivity greatl
    :maxdepth: 2
 
    intro
+   quick
    tutorial
-   old_birds
    faq
    api
 
