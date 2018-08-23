@@ -57,26 +57,28 @@ It is our 'hello world' example:
 ```python
 import aiochan as ac
 
-async def blue_producer(c):
+async def blue_python(c):
     while True:
         # do some hard work
-        product = "a product made by the blue producer"
+        product = "a product made by the blue python"
         await c.put(product)
 
-async def yellow_consumer(c):
+async def yellow_python(c):
     while True:
         result = await c.get()
         # use result to do amazing things
-        print("I've received", result)
-        
+        print("A yellow python as received", result)
+
 async def main():
     c = ac.Chan()
 
     for _ in range(3):
-        ac.go(blue_producer(c))
+        ac.go(blue_python(c))
 
     for _ in range(3):
-        ac.go(yellow_consumer(c))
+        ac.go(yellow_python(c))
 ```
 
-in other words, it is a 3-fan-in on top of a 3-fan-out. If you have no idea what this is, read the tutorial.
+in other words, it is a 3-fan-in on top of a 3-fan-out. If you run it, you will have an endless stream of `A yellow python as received a product made by the blue python`.
+
+If you have no idea what this is, read the tutorial.
