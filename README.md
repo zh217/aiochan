@@ -67,7 +67,7 @@ async def yellow_python(c):
     while True:
         result = await c.get()
         # use result to do amazing things
-        print("A yellow python as received", result)
+        print("A yellow python has received", result)
 
 async def main():
     c = ac.Chan()
@@ -79,6 +79,6 @@ async def main():
         ac.go(yellow_python(c))
 ```
 
-in other words, it is a 3-fan-in on top of a 3-fan-out. If you run it, you will have an endless stream of `A yellow python as received a product made by the blue python`.
+in other words, it is a 3-fan-in on top of a 3-fan-out. If you run it, you will have an endless stream of `A yellow python has received a product made by the blue python`.
 
 If you have no idea what this is, read the tutorial.
