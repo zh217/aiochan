@@ -10,10 +10,10 @@
 
 ![logo](logo.gif "aiochan logo")
 
-
-Under heavy construction. Stay tuned.
-
-Aiochan is a library written to bring the wonderful idiom of CSP-style concurrency to python. The implementation is based on the battle-tested Clojure library core.async, while the API is carefully crafted to feel as pythonic as possible.
+Aiochan is a library written to bring the wonderful idiom of 
+[CSP-style](https://en.wikipedia.org/wiki/Communicating_sequential_processes) concurrency to python. The implementation 
+is based on the battle-tested Clojure library [core.async](https://github.com/clojure/core.async), while the API is 
+carefully crafted to feel as pythonic as possible.
 
 ## Why?
 
@@ -21,16 +21,18 @@ Because ...
 
 ## What am I getting?
 
-* Pythonic, object-oriented API that includes everything you'd expect from a CSP library
-* Fully tested
-* Fully documented
+* Pythonic, object-oriented [API](https://aiochan.readthedocs.io/en/latest/api.html) that includes everything you'd 
+expect from a CSP library
+* Fully [tested](aiochan/test)
+* Fully [documented](https://aiochan.readthedocs.io/en/latest/index.html)
 * Guaranteed to work with Python 3.5.2 or above and PyPy 3.5 or above
 * Depends only on python's core libraries, zero external dependencies
-* Proven, efficient implementation based on Clojure's battle-tested core.async
-* Familiar semantics for users of golang's channels and Clojure's core.async channels
+* Proven, efficient implementation based on Clojure's battle-tested [core.async](https://github.com/clojure/core.async)
+* Familiar semantics for users of [golang](https://golang.org)'s channels and Clojure's core.async channels
 * Flexible implementation that does not depend on the inner workings of asyncio at all
-* Permissively licensed
-* A beginner-friendly tutorial to get newcomers onboard as quickly as possible
+* Permissively [licensed](LICENSE)
+* A [beginner-friendly tutorial](https://aiochan.readthedocs.io/en/latest/tutorial.html) to get newcomers onboard as 
+quickly as possible
 
 ## How to install?
 
@@ -40,23 +42,37 @@ pip3 install aiochan
 
 ## How to use?
 
-Read the beginner-friendly tutorial that starts from the basics. Or if you are already experienced with golang or Clojure's core.async, start with the quick introduction and then dive into the API documentation.
+Read the [beginner-friendly tutorial](https://aiochan.readthedocs.io/en/latest/tutorial.html) that starts from the 
+basics. Or if you are already experienced with [golang](https://golang.org) or Clojure's 
+[core.async](https://github.com/clojure/core.async), start with the 
+[quick introduction](https://aiochan.readthedocs.io/en/latest/quick.html) and then dive into the 
+[API documentation](https://aiochan.readthedocs.io/en/latest/api.html).
 
 ## I want to try it first
 
-The quick introduction and the beginner-friendly tutorial can both be run in jupyter notebooks, online in binders if you want.
+The [quick introduction](https://aiochan.readthedocs.io/en/latest/quick.html) and the 
+[beginner-friendly tutorial](https://aiochan.readthedocs.io/en/latest/tutorial.html) can both be run in jupyter 
+notebooks, online in binders if you want (just look for ![the binder link](https://mybinder.org/static/images/badge.svg) 
+at the top of each tutorial).
 
 ## Examples
 
-In addition to the introduction and the tutorial, we have the complete set of examples from Rob Pike's concurrency patterns translated into aiochan. Also, here is a solution to the classical dining philosophers problem.
+In addition to the [introduction](https://aiochan.readthedocs.io/en/latest/quick.html) and the 
+[tutorial](https://aiochan.readthedocs.io/en/latest/tutorial.html), we have the 
+[complete set of examples](examples/concurrency_patterns) from Rob Pike's 
+[Go concurrency patterns](https://www.youtube.com/watch?v=f6kdp27TYZs) translated into aiochan. Also, here is a 
+[solution](examples/dining_philosophers.py) to the classical 
+[dining philosophers problem](https://en.wikipedia.org/wiki/Dining_philosophers_problem).
 
 ## I still don't know how to use it
 
-We are just starting out, but we will try to answer aiochan-related questions on stackoverflow as quickly as possible.
+We are just starting out, but we will try to answer aiochan-related questions on 
+[stackoverflow](https://stackoverflow.com/questions/ask?tags=python+python-aiochan) as quickly as possible.
 
 ## I found a bug
 
-File an issue, or if you think you can solve it, file a pull request.
+File an [issue](https://github.com/zh217/aiochan/issues/new), or if you think you can solve it, a pull request is even 
+better.
 
 ## What's up with the logo?
 
@@ -87,6 +103,7 @@ async def main():
         ac.go(yellow_python(c))
 ```
 
-in other words, it is a 3-fan-in on top of a 3-fan-out. If you run it, you will have an endless stream of `A yellow python has received a product made by the blue python`.
+in other words, it is a 3-fan-in on top of a 3-fan-out. If you run it, you will have an endless stream of 
+`A yellow python has received a product made by the blue python`.
 
-If you have no idea what this is, read the tutorial.
+If you have no idea what this is, read the [tutorial](https://aiochan.readthedocs.io/en/latest/tutorial.html).
