@@ -9,12 +9,9 @@ Welcome to aiochan's documentation!
 Hello! We are excited to bring you what we consider the best concurrency control library available for Python.
 
 You can start learning how to use aiochan now by following our tutorial, or, if you are already experienced in
-Golang or Clojure's core.async, we have a quick guide for you that can help you get to speed immediately.
+Golang or Clojure's core.async, we have a ten-minutes introduction for you that can help you get to speed immediately.
 
-It is a rather big claim to say that our library is the *best* concurrency control library for Python. We detail
-why we think so in the introduction.
-
-Again, welcome! We hope you find that aiochan can boost your productivity greatly, as we do, and happy coding!
+We hope you find that aiochan can boost your productivity greatly, as we do, and happy coding!
 
 .. toctree::
    :maxdepth: 2

@@ -17,7 +17,13 @@ carefully crafted to feel as pythonic as possible.
 
 ## Why?
 
-Because ...
+* Doing concurrency in Python was painful
+* asyncio sometimes feels too low-level
+* I am constantly missing capabilities from [golang](https://golang.org) and 
+  [core.async](https://github.com/clojure/core.async)
+* It is much easier to port [core.async](https://github.com/clojure/core.async) to Python than to port all those
+  [wonderful](http://www.numpy.org/) [python](https://pytorch.org/) [packages](https://scrapy.org/) to some other 
+  language.
 
 ## What am I getting?
 
