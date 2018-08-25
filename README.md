@@ -27,8 +27,9 @@ carefully crafted to feel as pythonic as possible.
 
 ## What am I getting?
 
-* Pythonic, object-oriented [API](https://aiochan.readthedocs.io/en/latest/api.html) that includes everything you'd 
-expect from a CSP library
+* Pythonic [API](https://aiochan.readthedocs.io/en/latest/api.html) that includes everything you'd need for CSP-style
+  concurrency programming
+* Works seamlessly with existing asyncio-based libraries
 * Fully [tested](aiochan/test)
 * Fully [documented](https://aiochan.readthedocs.io/en/latest/index.html)
 * Guaranteed to work with Python 3.5.2 or above and PyPy 3.5 or above
