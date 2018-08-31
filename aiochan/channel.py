@@ -59,7 +59,7 @@ class Chan:
             :meth:`aiochan.channel.Chan.put_nowait`.
     :param name: used to provide more friendly debugging outputs.
     """
-    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name')
+    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name', '_close_event')
 
     _count = 0
 
@@ -72,8 +72,10 @@ class Chan:
         self._name = name or '_unk' + '_' + str(self.__class__._count)
         if loop == 'no_loop':
             self.loop = None
+            self._close_event = None
         else:
             self.loop = loop or asyncio.get_event_loop()
+            self._close_event = asyncio.Event(loop=loop)
         try:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
@@ -98,6 +100,8 @@ class Chan:
             # print('notified get', self._dirty_gets)
 
     def _dispatch(self, f, value=None):
+        self._check_exhausted()
+
         if f is None:
             return
         elif asyncio.isfuture(f):
@@ -107,6 +111,10 @@ class Chan:
         else:
             f(value)
             # self.loop.call_soon(functools.partial(f, value))
+
+    def _check_exhausted(self):
+        if self._closed and (not len(self._puts)) and (not self._buf or not self._buf.can_take):
+            self._close_event.set()
 
     def _clean_gets(self):
         self._gets = collections.deque(g for g in self._gets if g.active)
@@ -184,6 +192,7 @@ class Chan:
                 except IndexError:
                     self._dirty_puts = 0
                     break
+            self._check_exhausted()
             return (val,)
 
         putter = None
@@ -354,6 +363,7 @@ class Chan:
                 self._dirty_gets = 0
                 break
         self._closed = True
+        self._check_exhausted()
         return self
 
     @property
@@ -362,6 +372,15 @@ class Chan:
         :return: whether this channel is already closed.
         """
         return self._closed
+
+    def join(self):
+        """
+        **Coroutine**. Wait for the channel to be closed and completed exhausted.
+
+        :return: An awaitable that will yield when the channel becomes both closed and exhausted (i.e., no buffer,
+        no pending puts)
+        """
+        return self._close_event.wait()
 
     async def _pipe_worker(self, out):
         async for v in self:

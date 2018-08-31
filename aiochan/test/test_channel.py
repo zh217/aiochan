@@ -403,6 +403,25 @@ async def test_go():
 
 
 @pytest.mark.asyncio
+async def test_join():
+    c = Chan()
+    c.put_nowait(1, immediate_only=False)
+    c.close()
+    assert not c._close_event.is_set()
+
+    c = Chan(1)
+    await c.put('a')
+    c.close()
+    assert not c._close_event.is_set()
+
+    r = await c.get()
+    assert r == 'a'
+    r = await c.get()
+    # await c.join()
+    assert c._close_event.is_set()
+
+
+@pytest.mark.asyncio
 async def test_async_pipe():
     c = Chan().add(*range(10)).close()
     d = Chan()
