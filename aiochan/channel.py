@@ -388,13 +388,11 @@ class Chan:
                 break
         out.close()
 
-    def async_apply(self, f=_pipe_worker, out=None):
+    def async_apply(self, f=_pipe_worker, out=None, buffer=None, buffer_size=None):
         """
         Apply a coroutine function to values in the channel, giving out an arbitrary number of results into the output
         channel and return the output value.
 
-        :param out: the `out` channel giving to the coroutine function `f`. If `None`, a new channel with no buffer
-                  will be created.
         :param f: a coroutine function taking two channels, `inp` and `out`. `inp` is the current channel and `out` is
                   the given or newly created out channel. The coroutine function should take elements
                   from `inp`, do its processing, and put the processed values into `out`.  When, how often and whether
@@ -402,14 +400,18 @@ class Chan:
 
                   If `f` is not given, an identity coroutine function which will just pass the values along and close
                   `out` when `inp` is closed is used.
+        :param out: the `out` channel giving to the coroutine function `f`. If `None`, a new channel with no buffer
+                  will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :return: the `out` channel.
         """
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
         self.loop.create_task(f(self, out))
         return out
 
-    def async_pipe(self, n, f, out=None, *, close=True):
+    def async_pipe(self, n, f, out=None, buffer=None, buffer_size=None, *, close=True):
         """
         Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
         The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
@@ -422,11 +424,13 @@ class Chan:
         :param f: a coroutine function accepting one input value and returning one output value. S
                   hould never return `None`.
         :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether to close the output channel when the input channel is closed.
         :return: the output channel.
         """
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
 
         jobs = Chan(n, loop=self.loop)
         results = Chan(n, loop=self.loop)
@@ -459,7 +463,7 @@ class Chan:
 
         return out
 
-    def async_pipe_unordered(self, n, f, out=None, *, close=True):
+    def async_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, *, close=True):
         """
         Asynchronously apply the coroutine function `f` to each value in the channel, and pipe the results to `out`.
         The results will be put into `out` in an unspecified order: whichever result completes first will be given
@@ -473,11 +477,13 @@ class Chan:
         :param f: a coroutine function accepting one input value and returning one output value.
                   Should never return `None`.
         :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether to close the output channel when the input channel is closed.
         :return: the output channel.
         """
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
 
         pending = n
 
@@ -495,7 +501,8 @@ class Chan:
 
         return out
 
-    def parallel_pipe(self, n, f, out=None, mode='thread', close=True, **kwargs):
+    def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, mode='thread', close=True, flatten=False,
+                      **kwargs):
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
         The function `f` will be run in a pool executor with parallelism `n`.
@@ -513,15 +520,19 @@ class Chan:
         :param n: the parallelism of the pool executor (number of threads or number of processes).
         :param f: a plain function accepting one input value and returning one output value. Should never return `None`.
         :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
                      used. Note that in the case of `process`, `f` should be a top-level function.
+        :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
+               onto the output channel instead
         :param close: whether to close the output channel when the input channel is closed.
         :param kwargs: theses will be given to the constructor of the pool executor.
         :return: the output channel.
         """
         assert mode in ('thread', 'process')
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
 
         if mode == 'thread':
             executor = ThreadPoolExecutor(max_workers=n, **kwargs)
@@ -547,20 +558,33 @@ class Chan:
             results.close()
             executor.shutdown(wait=False)
 
-        async def job_out():
-            async for rc in results:
-                r = await rc
-                if not await out.put(r):
-                    break
-            if close:
-                out.close()
+        if flatten:
+            async def job_out():
+                async for rc in results:
+                    r = await rc
+                    for v in r:
+                        if not await out.put(v):
+                            break
+                    if out.closed:
+                        break
+                if close:
+                    out.close()
+        else:
+            async def job_out():
+                async for rc in results:
+                    r = await rc
+                    if not await out.put(r):
+                        break
+                if close:
+                    out.close()
 
         self.loop.create_task(job_out())
         self.loop.create_task(job_in())
 
         return out
 
-    def parallel_pipe_unordered(self, n, f, out=None, mode='thread', close=True, **kwargs):
+    def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, mode='thread', close=True,
+                                flatten=False, **kwargs):
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
         The function `f` will be run in a pool executor with parallelism `n`.
@@ -577,15 +601,24 @@ class Chan:
         :param n: the parallelism of the pool executor (number of threads or number of processes).
         :param f: a plain function accepting one input value and returning one output value. Should never return `None`.
         :param out: the output channel. if `None`, one without buffer will be created and used.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
                      used. Note that in the case of `process`, `f` should be a top-level function.
         :param close: whether to close the output channel when the input channel is closed.
+        :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
+               onto the output channel instead
         :param kwargs: theses will be given to the constructor of the pool executor.
         :return: the output channel.
         """
         assert mode in ('thread', 'process')
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
+
+        if flatten:
+            _out = Chan(1)
+        else:
+            _out = out
 
         if mode == 'thread':
             executor = ThreadPoolExecutor(max_workers=n, **kwargs)
@@ -598,7 +631,7 @@ class Chan:
             nonlocal activity
             activity -= 1
             if activity == 0 and close:
-                out.close()
+                _out.close()
 
         async def job_in():
             async for v in self:
@@ -610,7 +643,7 @@ class Chan:
                     r = rft.result()
 
                     def putter():
-                        out.put_nowait(r, immediate_only=False)
+                        _out.put_nowait(r, immediate_only=False)
                         finisher()
 
                     self.loop.call_soon_threadsafe(putter)
@@ -621,7 +654,10 @@ class Chan:
 
         self.loop.create_task(job_in())
 
-        return out
+        if flatten:
+            return _out.map(lambda x: x, out=out, flatten=True)
+        else:
+            return _out
 
     async def collect(self, n=None):
         """
@@ -690,31 +726,48 @@ class Chan:
 
         return item_gen()
 
-    def map(self, f, *, out=None, close=True):
+    def map(self, f, *, out=None, buffer=None, buffer_size=None, close=True, flatten=False):
         """
         Returns a channel containing `f(v)` for values `v` from the channel.
 
         :param close: whether `out` should be closed when there are no more values to be produced.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param f: a function receiving one element and returning one element. Cannot return `None`.
+        :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
+               onto the output channel instead
         :return: the output channel.
         """
 
-        async def worker(inp, o):
-            async for v in inp:
-                if not await o.put(f(v)):
-                    break
-            if close:
-                o.close()
+        if flatten:
+            async def worker(inp, o):
+                async for v in inp:
+                    for r in f(v):
+                        if not await o.put(r):
+                            break
+                    if o.closed:
+                        break
+                if close:
+                    o.close()
+        else:
+            async def worker(inp, o):
+                async for v in inp:
+                    if not await o.put(f(v)):
+                        break
+                if close:
+                    o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def filter(self, p, *, out=None, close=True):
+    def filter(self, p, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing values `v` from the channel for which `p(v)` is true.
 
         :param close: whether `out` should be closed when there are no more values to be produced.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param p: a function receiving one element and returning whether this value should be kept.
         :return: the output channel.
         """
@@ -727,14 +780,16 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def take(self, n, *, out=None, close=True):
+    def take(self, n, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing at most `n` values from the channel.
 
         :param n: how many values to take.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -750,14 +805,16 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def drop(self, n, *, out=None, close=True):
+    def drop(self, n, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing values from the channel except the first `n` values.
 
         :param n: how many values to take.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -773,14 +830,16 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def take_while(self, p, *, out=None, close=True):
+    def take_while(self, p, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing values `v` from the channel until `p(v)` becomes false.
 
         :param p: a function receiving one element and returning whether this value should be kept.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -794,14 +853,16 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def drop_while(self, p, *, out=None, close=True):
+    def drop_while(self, p, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing values `v` from the channel after `p(v)` becomes false for the first time.
 
         :param p: a function receiving one element and returning whether this value should be dropped.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -818,13 +879,15 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def distinct(self, *, out=None, close=True):
+    def distinct(self, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing distinct values from the channel (consecutive duplicates are dropped).
 
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -839,9 +902,9 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def reduce(self, f, init=None, *, out=None, close=True):
+    def reduce(self, f, init=None, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing the single value that is the reduce (i.e. left-fold) of the values in the channel.
 
@@ -869,9 +932,9 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
-    def scan(self, f, init=None, *, out=None, close=True):
+    def scan(self, f, init=None, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Similar to `reduce`, but all intermediate accumulators are put onto the out channel in order as well.
 
@@ -880,6 +943,8 @@ class Chan:
         :param init: if given, will be used as the initial accumulator. If not given, the first element in the channel
                      will be used instead.
         :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether `out` should be closed when there are no more values to be produced.
         :return: the output channel.
         """
@@ -900,7 +965,7 @@ class Chan:
             if close:
                 o.close()
 
-        return self.async_apply(worker, out)
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
     def dup(self):
         """
@@ -1125,16 +1190,18 @@ def select(*chan_ops,
     return ft
 
 
-def merge(*inputs, out=None, close=True):
+def merge(*inputs, out=None, buffer=None, buffer_size=None, close=True):
     """
     Merge the elements of the input channels into a single channel containing the individual values from the inputs.
 
     :param inputs: the input channels
     :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param buffer: buffer of the internal channel, only applies if out is `None`
+    :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
     :param close: whether to close `out` when all inputs are closed.
     :return: the ouput channel
     """
-    out = out or Chan()
+    out = out or Chan(buffer, buffer_size)
 
     async def worker(chs):
         while chs:
@@ -1151,18 +1218,20 @@ def merge(*inputs, out=None, close=True):
     return out
 
 
-def zip_chans(*inputs, out=None, close=True):
+def zip_chans(*inputs, out=None, buffer=None, buffer_size=None, close=True):
     """
     Merge the elements of the input channels into a single channel containing lists of individual values from the
     inputs. The input values are consumed in lockstep.
 
     :param inputs: the input channels
     :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param buffer: buffer of the internal channel, only applies if out is `None`
+    :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
     :param close: whether to close `out` when all inputs are closed.
     :return: the ouput channel
     """
     assert len(inputs)
-    out = out or Chan()
+    out = out or Chan(buffer, buffer_size)
 
     async def worker():
         while True:
@@ -1181,7 +1250,7 @@ def zip_chans(*inputs, out=None, close=True):
     return out
 
 
-def combine_latest(*inputs, out=None, close=True):
+def combine_latest(*inputs, out=None, buffer=None, buffer_size=None, close=True):
     """
     Merge the elements of the input channels into a single channel containing lists of individual values from the
     inputs. The input values are consumed individually and each time a new value is consumed from any inputs, a
@@ -1190,11 +1259,13 @@ def combine_latest(*inputs, out=None, close=True):
 
     :param inputs: the input channels
     :param out: the output chan. If `None`, a new unbuffered channel will be used.
+    :param buffer: buffer of the internal channel, only applies if out is `None`
+    :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
     :param close: whether to close `out` when all inputs are closed.
     :return: the ouput channel
     """
     assert len(inputs)
-    out = out or Chan()
+    out = out or Chan(buffer, buffer_size)
 
     async def worker():
         idxs = {c: i for i, c in enumerate(inputs)}
@@ -1261,16 +1332,18 @@ class Dup:
         """
         return self._in
 
-    def tap(self, out=None, close=True):
+    def tap(self, out=None, buffer=None, buffer_size=None, close=True):
         """
         add channels to the duplicator to receive duplicated values from the input.
 
         :param out: the channel to add. If `None`, an unbuffered channel will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether to close the added channels when the input is closed
         :return: the output channel
         """
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
         self._outs[out] = close
         return out
 
@@ -1357,17 +1430,19 @@ class Pub:
             self._mults[topic] = mult
             return mult
 
-    def sub(self, topic, out=None, close=True):
+    def sub(self, topic, out=None, buffer=None, buffer_size=None, close=True):
         """
         Subscribe `outs` to `topic`.
 
         :param topic: the topic to subscribe
         :param out: the subscribing channel. If `None`, an unbuffered channel will be used.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
         :param close: whether to close these channels when the input is closed
         :return: the subscribing channel
         """
         if out is None:
-            out = Chan()
+            out = Chan(buffer, buffer_size)
         m = self._get_mult(topic)
         m.tap(out, close=close)
         return out

@@ -477,6 +477,19 @@ async def test_parallel_pipe():
 
 
 @pytest.mark.asyncio
+async def test_parallel_flat_pipe():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    def work(n):
+        return [n * 2]
+
+    c.parallel_pipe(10, work, d, flatten=True)
+
+    assert list(range(0, 20, 2)) == await d.collect()
+
+
+@pytest.mark.asyncio
 async def test_parallel_pipe_big():
     c = Chan().add(*range(100)).close()
     d = Chan()
@@ -498,6 +511,20 @@ async def test_parallel_pipe_unordered():
         return n * 2
 
     c.parallel_pipe_unordered(10, work, d)
+
+    assert set(range(0, 20, 2)) == set(await d.collect())
+
+
+@pytest.mark.asyncio
+async def test_parallel_flat_pipe_unordered():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    def work(n):
+        time.sleep(random.uniform(0, 0.05))
+        return [n * 2]
+
+    c.parallel_pipe_unordered(10, work, d, flatten=True)
 
     assert set(range(0, 20, 2)) == set(await d.collect())
 
@@ -602,6 +629,12 @@ async def test_fake_initializer():
 @pytest.mark.asyncio
 async def test_map():
     c = from_range(10).map(lambda v: v * 2)
+    assert list(range(0, 20, 2)) == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_flat_map():
+    c = from_range(10).map(lambda v: [v * 2], flatten=True)
     assert list(range(0, 20, 2)) == await c.collect()
 
 

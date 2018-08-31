@@ -26,7 +26,7 @@ author = 'Ziyang Hu'
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '0.2.1'
+release = '0.2.2'
 
 # -- General configuration ---------------------------------------------------
 
@@ -86,7 +86,7 @@ html_theme = 'sphinx_rtd_theme'
 #
 # html_theme_options = {}
 html_theme_options = {
-    "collapse_navigation" : False
+    "collapse_navigation": False
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
