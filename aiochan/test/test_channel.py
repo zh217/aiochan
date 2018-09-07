@@ -776,32 +776,32 @@ def test_without_asyncio():
 # since the logic is the same with mode='thread', we do not automatically run them.
 # not to mention that they are painfully slow on Windows.
 
-# _p_local_data = threading.local()
-#
-#
-# def _p_work(n):
-#     try:
-#         _p_local_data.count += 1
-#     except:
-#         _p_local_data.count = 1
-#         _p_local_data.process = lambda x: x * 2
-#     return _p_local_data.count, _p_local_data.process(n)
-#
-#
-# @pytest.mark.asyncio
-# async def test_fake_initializer_process():
-#     c = Chan().add(*range(100)).close()
-#     d = Chan()
-#
-#     c.parallel_pipe(10, _p_work, d, mode='process')
-#     r = await d.collect(100)
-#     rv = [v[1] for v in r]
-#     rc = sum(v[0] for v in r)
-#     assert list(range(0, 200, 2)) == rv
-#     assert rc > 100
-#     assert rc < 5055
-#
-#
+_p_local_data = threading.local()
+
+
+def _p_work(n):
+    try:
+        _p_local_data.count += 1
+    except:
+        _p_local_data.count = 1
+        _p_local_data.process = lambda x: x * 2
+    return _p_local_data.count, _p_local_data.process(n)
+
+
+@pytest.mark.asyncio
+async def test_fake_initializer_process():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    c.parallel_pipe(10, _p_work, d, mode='process')
+    r = await d.collect(100)
+    rv = [v[1] for v in r]
+    rc = sum(v[0] for v in r)
+    assert list(range(0, 200, 2)) == rv
+    assert rc > 100
+    assert rc < 5055
+
+
 def process_work(n):
     return n * 2
 
