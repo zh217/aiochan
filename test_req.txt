@@ -3,3 +3,4 @@ pytest-runner
 pytest-asyncio
 pytest-cov
 codecov
+janus
