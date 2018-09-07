@@ -589,9 +589,12 @@ class Chan:
         elif mode == 'process':
             threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
+        in_flight = asyncio.Semaphore(n, loop=self.loop)
+
         async def pipe_in_worker(q):
             while True:
                 data = await self.get()
+                await in_flight.acquire()
                 if data is None:
                     await q.put(None)
                     results_chan.close()
@@ -603,6 +606,7 @@ class Chan:
         async def pipe_out_worker(q):
             while True:
                 next_item = await q.get()
+                in_flight.release()
                 if next_item is None:
                     break
                 data, async_ft = next_item
@@ -698,9 +702,12 @@ class Chan:
         elif mode == 'process':
             threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
+        in_flight = asyncio.Semaphore(n, loop=self.loop)
+
         async def pipe_in_worker(q):
             while True:
                 data = await self.get()
+                await in_flight.acquire()
                 await q.put(data)
                 if data is None:
                     break
@@ -708,6 +715,7 @@ class Chan:
         async def pipe_out_worker(q):
             while True:
                 data = await q.get()
+                in_flight.release()
                 if data is None:
                     if close:
                         out.close()
