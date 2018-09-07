@@ -568,6 +568,9 @@ class Chan:
                     ft = executor.submit(f, data)
                     ft.add_done_callback(wrap_result(out_q, async_ft))
 
+        def wrap_p_result(q, a_ft):
+            return lambda r: q.put((r, a_ft))
+
         def process_worker(in_q, out_q):
             with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:
                 while True:
@@ -579,7 +582,7 @@ class Chan:
                         break
                     else:
                         data, async_ft = next_item
-                        pool.apply_async(f, (data,), callback=lambda r: out_q.put((r, async_ft)))
+                        pool.apply_async(f, (data,), callback=wrap_p_result(out_q, async_ft))
 
         if mode == 'thread':
             threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
