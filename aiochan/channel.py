@@ -552,6 +552,9 @@ class Chan:
 
         results_chan = Chan(n, loop=self.loop)
 
+        def wrap_result(q, a_ft):
+            return lambda rft: q.put((rft.result(), a_ft))
+
         def thread_worker(in_q, out_q):
             executor = ThreadPoolExecutor(max_workers=n, *pool_args, **pool_kwargs)
             while True:
@@ -563,7 +566,7 @@ class Chan:
                 else:
                     data, async_ft = next_item
                     ft = executor.submit(f, data)
-                    ft.add_done_callback(lambda rft: out_q.put((rft.result(), async_ft)))
+                    ft.add_done_callback(wrap_result(out_q, async_ft))
 
         def process_worker(in_q, out_q):
             with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:

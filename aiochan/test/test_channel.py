@@ -489,16 +489,16 @@ async def test_parallel_flat_pipe():
     assert list(range(0, 20, 2)) == await d.collect()
 
 
-# @pytest.mark.asyncio
-# async def test_parallel_pipe_big():
-#     c = Chan().add(*range(100)).close()
-#     d = Chan()
-#
-#     def work(n):
-#         return n * 2
-#
-#     c.parallel_pipe(2, work, d)
-#     assert list(range(0, 200, 2)) == await d.collect()
+@pytest.mark.asyncio
+async def test_parallel_pipe_big():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    def work(n):
+        return n * 2
+
+    c.parallel_pipe(2, work, d)
+    assert list(range(0, 200, 2)) == await d.collect()
 
 
 @pytest.mark.asyncio
