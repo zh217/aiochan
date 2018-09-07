@@ -13,6 +13,7 @@ setup(
     ],
     license='Apache',
     python_requires='>=3.5.3',
+    install_requires=['janus'],
     setup_requires=['pytest-runner'],
     tests_require=['pytest', 'pytest-asyncio'],
     author='Ziyang Hu',

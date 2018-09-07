@@ -2,11 +2,13 @@ import asyncio
 import collections
 import functools
 import itertools
+import janus
 import numbers
 import operator
 import queue
 import random
 import threading
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 from . import buffers
@@ -501,8 +503,10 @@ class Chan:
 
         return out
 
-    def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, mode='thread', close=True, flatten=False,
-                      **kwargs):
+    def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
+                      in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
+                      pool_kwargs=None):
+
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
         The function `f` will be run in a pool executor with parallelism `n`.
@@ -522,72 +526,106 @@ class Chan:
         :param out: the output channel. if `None`, one without buffer will be created and used.
         :param buffer: buffer of the internal channel, only applies if out is `None`
         :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
-        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
-                     used. Note that in the case of `process`, `f` should be a top-level function.
+        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `Pool` will be used.
+        :param close: whether to close the output channel when the input channel is closed.
         :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
                onto the output channel instead
-        :param close: whether to close the output channel when the input channel is closed.
-        :param kwargs: theses will be given to the constructor of the pool executor.
+        :param in_q_size: buffering of the queue from the asyncio-world to the worker-world
+        :param out_q_size: buffering of the queue from the worker-world to the asyncio-world
+        :param mp_module: when `mode='process'`, you can optionally pass in a compatible multiprocessing module
+                          (for example, `torch.multiprocessing` from pytorch).
+        :param pool_args: additional arguments when creating pool
+        :param pool_kwargs: additional keyword arguments when creating pool
         :return: the output channel.
         """
-        assert mode in ('thread', 'process')
         if out is None:
             out = Chan(buffer, buffer_size)
 
+        in_q = janus.Queue(maxsize=in_q_size, loop=self.loop)
+        out_q = janus.Queue(maxsize=out_q_size, loop=self.loop)
+
+        if pool_args is None:
+            pool_args = ()
+
+        if pool_kwargs is None:
+            pool_kwargs = {}
+
+        results_chan = Chan(n, loop=self.loop)
+
+        def thread_worker(in_q, out_q):
+            executor = ThreadPoolExecutor(max_workers=n, *pool_args, **pool_kwargs)
+            while True:
+                next_item = in_q.get()
+                if next_item is None:
+                    executor.shutdown(wait=True)
+                    out_q.put(None)
+                    break
+                else:
+                    data, async_ft = next_item
+                    ft = executor.submit(f, data)
+                    ft.add_done_callback(lambda rft: out_q.put((rft.result(), async_ft)))
+
+        def process_worker(in_q, out_q):
+            with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:
+                while True:
+                    next_item = in_q.get()
+                    if next_item is None:
+                        pool.close()
+                        pool.join()
+                        out_q.put(None)
+                        break
+                    else:
+                        data, async_ft = next_item
+                        pool.apply_async(f, (data,), callback=lambda r: out_q.put((r, async_ft)))
+
         if mode == 'thread':
-            executor = ThreadPoolExecutor(max_workers=n, **kwargs)
-        else:
-            executor = ProcessPoolExecutor(max_workers=n, **kwargs)
+            threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        elif mode == 'process':
+            threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
-        results = Chan(n, loop=self.loop)
+        async def pipe_in_worker(q):
+            while True:
+                data = await self.get()
+                if data is None:
+                    await q.put(None)
+                    results_chan.close()
+                    break
+                ft = self.loop.create_future()
+                await q.put((data, ft))
+                await results_chan.put(ft)
 
-        async def job_in():
-            async for v in self:
-                res = self.loop.create_future()
+        async def pipe_out_worker(q):
+            while True:
+                next_item = await q.get()
+                if next_item is None:
+                    break
+                data, async_ft = next_item
+                async_ft.set_result(data)
 
-                def wrapper(_res):
-                    def put_result(rft):
-                        r = rft.result()
-                        self.loop.call_soon_threadsafe(functools.partial(_res.set_result, r))
+        async def order_out_worker():
+            async for async_ft in results_chan:
+                item = await async_ft
+                if flatten:
+                    for data in item:
+                        await out.put(data)
+                else:
+                    await out.put(item)
+            if close:
+                out.close()
 
-                    return put_result
-
-                ft = executor.submit(f, v)
-                ft.add_done_callback(wrapper(res))
-                await results.put(res)
-            results.close()
-            executor.shutdown(wait=False)
-
-        if flatten:
-            async def job_out():
-                async for rc in results:
-                    r = await rc
-                    for v in r:
-                        if not await out.put(v):
-                            break
-                    if out.closed:
-                        break
-                if close:
-                    out.close()
-        else:
-            async def job_out():
-                async for rc in results:
-                    r = await rc
-                    if not await out.put(r):
-                        break
-                if close:
-                    out.close()
-
-        self.loop.create_task(job_out())
-        self.loop.create_task(job_in())
+        self.loop.create_task(pipe_in_worker(in_q.async_q))
+        self.loop.create_task(pipe_out_worker(out_q.async_q))
+        self.loop.create_task(order_out_worker())
 
         return out
 
-    def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, mode='thread', close=True,
-                                flatten=False, **kwargs):
+    def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
+                                in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
+                                pool_kwargs=None):
+
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
-        The function `f` will be run in a pool executor with parallelism `n`.
+        The function `f` will be run in a pool with parallelism `n`.
         The results will be processed in unspecified order but will be piped into `out` in the order of their inputs.
 
         Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
@@ -596,68 +634,88 @@ class Chan:
 
         If `f` involves no blocking or slow operation, consider using `async_pipe`.
 
-        If ordering is not important, consider using `parallel_pipe_unordered`.
-
         :param n: the parallelism of the pool executor (number of threads or number of processes).
         :param f: a plain function accepting one input value and returning one output value. Should never return `None`.
         :param out: the output channel. if `None`, one without buffer will be created and used.
         :param buffer: buffer of the internal channel, only applies if out is `None`
         :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
-        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `ProcessPoolExecutor` will be
-                     used. Note that in the case of `process`, `f` should be a top-level function.
+        :param mode: if `thread`, a `ThreadPoolExecutor` will be used; if `process`, a `Pool` will be used.
         :param close: whether to close the output channel when the input channel is closed.
         :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
                onto the output channel instead
-        :param kwargs: theses will be given to the constructor of the pool executor.
+        :param in_q_size: buffering of the queue from the asyncio-world to the worker-world
+        :param out_q_size: buffering of the queue from the worker-world to the asyncio-world
+        :param mp_module: when `mode='process'`, you can optionally pass in a compatible multiprocessing module
+                          (for example, `torch.multiprocessing` from pytorch).
+        :param pool_args: additional arguments when creating pool
+        :param pool_kwargs: additional keyword arguments when creating pool
         :return: the output channel.
         """
-        assert mode in ('thread', 'process')
         if out is None:
             out = Chan(buffer, buffer_size)
 
-        if flatten:
-            _out = Chan(1)
-        else:
-            _out = out
+        in_q = janus.Queue(maxsize=in_q_size, loop=self.loop)
+        out_q = janus.Queue(maxsize=out_q_size, loop=self.loop)
+
+        if pool_args is None:
+            pool_args = ()
+
+        if pool_kwargs is None:
+            pool_kwargs = {}
+
+        def thread_worker(in_q, out_q):
+            executor = ThreadPoolExecutor(max_workers=n, *pool_args, **pool_kwargs)
+            while True:
+                next_item = in_q.get()
+                if next_item is None:
+                    executor.shutdown(wait=True)
+                    out_q.put(None)
+                    break
+                else:
+                    ft = executor.submit(f, next_item)
+                    ft.add_done_callback(lambda rft: out_q.put(rft.result()))
+
+        def process_worker(in_q, out_q):
+            with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:
+                while True:
+                    next_item = in_q.get()
+                    if next_item is None:
+                        pool.close()
+                        pool.join()
+                        out_q.put(None)
+                        break
+                    else:
+                        pool.apply_async(f, (next_item,), callback=lambda r: out_q.put(r))
 
         if mode == 'thread':
-            executor = ThreadPoolExecutor(max_workers=n, **kwargs)
-        else:
-            executor = ProcessPoolExecutor(max_workers=n, **kwargs)
+            threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        elif mode == 'process':
+            threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
-        activity = 1
+        async def pipe_in_worker(q):
+            while True:
+                data = await self.get()
+                await q.put(data)
+                if data is None:
+                    break
 
-        def finisher():
-            nonlocal activity
-            activity -= 1
-            if activity == 0 and close:
-                _out.close()
+        async def pipe_out_worker(q):
+            while True:
+                data = await q.get()
+                if data is None:
+                    if close:
+                        out.close()
+                    break
+                if flatten:
+                    for item in data:
+                        await out.put(item)
+                else:
+                    await out.put(data)
 
-        async def job_in():
-            async for v in self:
-                nonlocal activity
-                activity += 1
-                ft = executor.submit(f, v)
+        self.loop.create_task(pipe_in_worker(in_q.async_q))
+        self.loop.create_task(pipe_out_worker(out_q.async_q))
 
-                def put_result(rft):
-                    r = rft.result()
-
-                    def putter():
-                        _out.put_nowait(r, immediate_only=False)
-                        finisher()
-
-                    self.loop.call_soon_threadsafe(putter)
-
-                ft.add_done_callback(put_result)
-            executor.shutdown(wait=False)
-            finisher()
-
-        self.loop.create_task(job_in())
-
-        if flatten:
-            return _out.map(lambda x: x, out=out, flatten=True)
-        else:
-            return _out
+        return out
 
     async def collect(self, n=None):
         """

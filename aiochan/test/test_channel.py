@@ -489,16 +489,16 @@ async def test_parallel_flat_pipe():
     assert list(range(0, 20, 2)) == await d.collect()
 
 
-@pytest.mark.asyncio
-async def test_parallel_pipe_big():
-    c = Chan().add(*range(100)).close()
-    d = Chan()
-
-    def work(n):
-        return n * 2
-
-    c.parallel_pipe(2, work, d)
-    assert list(range(0, 200, 2)) == await d.collect()
+# @pytest.mark.asyncio
+# async def test_parallel_pipe_big():
+#     c = Chan().add(*range(100)).close()
+#     d = Chan()
+#
+#     def work(n):
+#         return n * 2
+#
+#     c.parallel_pipe(2, work, d)
+#     assert list(range(0, 200, 2)) == await d.collect()
 
 
 @pytest.mark.asyncio
@@ -601,13 +601,12 @@ def test_sync_op():
     assert list(range(10)) == list(g)
 
 
-_local_data = threading.local()
-
-
 @pytest.mark.asyncio
 async def test_fake_initializer():
     c = Chan().add(*range(100)).close()
     d = Chan()
+
+    _local_data = threading.local()
 
     def work(n):
         try:
@@ -770,6 +769,7 @@ def test_without_asyncio():
 
     assert (put_chan is c and get_val == 1) or (put_chan is d and get_val == 2)
 
+
 # note about parallel_pipe and mode='process':
 # the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.
 # these are brittle, and whether they pass or not depends on how the tests are run.
@@ -802,41 +802,41 @@ def test_without_asyncio():
 #     assert rc < 5055
 #
 #
-# def process_work(n):
-#     return n * 2
-#
-#
-# def process_slow_work(n):
-#     import time
-#     import random
-#     time.sleep(random.uniform(0, 0.05))
-#     return n * 2
-#
-#
-# @pytest.mark.asyncio
-# async def test_parallel_pipe_process_unordered():
-#     c = Chan().add(*range(10)).close()
-#     d = Chan()
-#
-#     c.parallel_pipe_unordered(10, process_slow_work, d, mode='process')
-#
-#     assert set(range(0, 20, 2)) == set(await d.collect())
-#
-#
-# @pytest.mark.asyncio
-# async def test_parallel_pipe_process():
-#     c = Chan().add(*range(10)).close()
-#     d = Chan()
-#
-#     c.parallel_pipe(10, process_work, d, mode='process')
-#
-#     assert list(range(0, 20, 2)) == await d.collect()
-#
-#
-# @pytest.mark.asyncio
-# async def test_parallel_pipe_process_big():
-#     c = Chan().add(*range(100)).close()
-#     d = Chan()
-#
-#     c.parallel_pipe(2, process_work, d, mode='process')
-#     assert list(range(0, 200, 2)) == await d.collect()
+def process_work(n):
+    return n * 2
+
+
+def process_slow_work(n):
+    import time
+    import random
+    time.sleep(random.uniform(0, 0.05))
+    return n * 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process_unordered():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    c.parallel_pipe_unordered(10, process_slow_work, d, mode='process')
+
+    assert set(range(0, 20, 2)) == set(await d.collect())
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process():
+    c = Chan().add(*range(10)).close()
+    d = Chan()
+
+    c.parallel_pipe(10, process_work, d, mode='process')
+
+    assert list(range(0, 20, 2)) == await d.collect()
+
+
+@pytest.mark.asyncio
+async def test_parallel_pipe_process_big():
+    c = Chan().add(*range(100)).close()
+    d = Chan()
+
+    c.parallel_pipe(2, process_work, d, mode='process')
+    assert list(range(0, 200, 2)) == await d.collect()
