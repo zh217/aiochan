@@ -1124,7 +1124,8 @@ def tick_tock(seconds, start_at=None, loop=None):
     """
     Returns a channel that gives out values every `seconds`.
 
-    The channel contains numbers from 1, counting how many ticks have been passed.
+    The channel contains tuples, in which the first elements are numbers from 1, counting how many ticks have been
+    passed, and the second elements are the times at which the elements are generated.
 
     :param start_at: if `None`, the first tick occurs `seconds` later. If given, the first tick occurs at the given time
                      (in float).
@@ -1142,7 +1143,7 @@ def tick_tock(seconds, start_at=None, loop=None):
     def tick():
         nonlocal ct
         ct += 1
-        if c.put_nowait(ct, immediate_only=False) is not False:
+        if c.put_nowait((ct, loop.time()), immediate_only=False) is not False:
             loop.call_at(start_time + seconds * ct, tick)
 
     loop.call_at(start_time, tick)

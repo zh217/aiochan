@@ -761,7 +761,7 @@ async def test_drop_while():
 @pytest.mark.asyncio
 async def test_tick_tock():
     c = tick_tock(0.001)
-    assert list(range(1, 11)) == await c.collect(10)
+    assert list(range(1, 11)) == [i for i, _ in await c.collect(10)]
     c.close()
     await asyncio.sleep(0.01)
 
