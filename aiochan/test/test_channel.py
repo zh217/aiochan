@@ -393,6 +393,67 @@ async def test_pub_sub():
 
 
 @pytest.mark.asyncio
+async def test_stats():
+    c = Chan(1)
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 0
+    assert s.queued == 0
+    assert s.immediate == 0
+    c.get_nowait(immediate_only=False)
+    s = c.stats()
+    assert s.state == 'PENDING_GETS'
+    assert s.buffered == 0
+    assert s.queued == 0
+    assert s.immediate == 0
+
+    await c.put(1)
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 0
+    assert s.queued == 1
+    assert s.immediate == 0
+
+    await c.put(1)
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 0
+    assert s.queued == 1
+    assert s.immediate == 0
+
+    c.put_nowait(1, immediate_only=False)
+    s = c.stats()
+    assert s.state == 'PENDING_PUTS'
+    assert s.buffered == 0
+    assert s.queued == 1
+    assert s.immediate == 0
+
+    await c.get()
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 1
+    assert s.queued == 1
+    assert s.immediate == 0
+
+    await c.get()
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 2
+    assert s.queued == 1
+    assert s.immediate == 0
+
+    c = Chan()
+
+    c.put_nowait(1, immediate_only=False)
+    await c.get()
+    s = c.stats()
+    assert s.state == 'FLUENT'
+    assert s.buffered == 0
+    assert s.queued == 0
+    assert s.immediate == 1
+
+
+@pytest.mark.asyncio
 async def test_go():
     async def af(a):
         await nop()

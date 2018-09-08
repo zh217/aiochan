@@ -1,15 +1,15 @@
 import asyncio
 import collections
-import functools
 import itertools
-import janus
+import multiprocessing
 import numbers
 import operator
 import queue
 import random
 import threading
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
+
+import janus
 
 from . import buffers
 from ._util import FnHandler, SelectFlag, SelectHandler
@@ -61,7 +61,8 @@ class Chan:
             :meth:`aiochan.channel.Chan.put_nowait`.
     :param name: used to provide more friendly debugging outputs.
     """
-    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name', '_close_event')
+    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name', '_close_event',
+                 '_delivered_immediate', '_delivered_buffered', '_delivered_queued')
 
     _count = 0
 
@@ -86,6 +87,9 @@ class Chan:
             else:
                 self._buf = buffer
 
+        self._delivered_immediate = 0
+        self._delivered_buffered = 0
+        self._delivered_queued = 0
         self._gets = collections.deque()
         self._puts = collections.deque()
         self._closed = False
@@ -134,7 +138,7 @@ class Chan:
         if self.closed or not handler.active:
             return (not self.closed,)
 
-        # case 1: buffer available, and current buffer and then drain buffer
+        # case 1: buffer available, add to buffer and then drain buffer
         if self._buf and self._buf.can_add:
             # print('put op: buffer')
             handler.commit()
@@ -143,6 +147,7 @@ class Chan:
                 getter = self._gets.popleft()
                 if getter.active:
                     self._dispatch(getter.commit(), self._buf.take())
+                    self._delivered_queued += 1
             return (True,)
 
         getter = None
@@ -161,6 +166,7 @@ class Chan:
             # print('put op: dispatch immediate to getter')
             handler.commit()
             self._dispatch(getter.commit(), val)
+            self._delivered_queued += 1
             return (True,)
 
         # case 3: no buffer, no pending getter, queue put op if put is blockable
@@ -195,6 +201,7 @@ class Chan:
                     self._dirty_puts = 0
                     break
             self._check_exhausted()
+            self._delivered_buffered += 1
             return (val,)
 
         putter = None
@@ -213,6 +220,7 @@ class Chan:
             # print('get op: get immediate from putter')
             handler.commit()
             self._dispatch(putter[0].commit(), True)
+            self._delivered_immediate += 1
             return (putter[1],)
 
         # case c: we are closed and no buffer
@@ -361,6 +369,7 @@ class Chan:
                 if getter.active:
                     val = self._buf.take() if self._buf and self._buf.can_take else None
                     self._dispatch(getter.commit(), val)
+                    self._delivered_queued += 1
             except IndexError:
                 self._dirty_gets = 0
                 break
@@ -383,6 +392,30 @@ class Chan:
         no pending puts)
         """
         return self._close_event.wait()
+
+    def stats(self):
+        """
+        Getting the current stats of the channel, useful for determining bottlenecks and debugging back pressure
+        in a processing pipeline.
+
+        :return: a `ChanStat` object `cs`, where
+                 `cs.state` is `'PENDING_PUTS'`, `'PENDING_GETS'` or `'FLUENT'` according to whether the channel is
+                 currently blocked on puts, blocked on gets, or not blocked (either because there is no operation going
+                 on or there is buffer available), `cs.buffered`, `cs.queued`, `cs.immediate` count how many values
+                 have been delivered according to whether the getter was given a buffered value, the getter was queued,
+                 or the getter obtained value immediately from a pending putter.
+        """
+        if self._puts:
+            state = 'PENDING_PUTS'
+        elif self._gets:
+            state = 'PENDING_GETS'
+        else:
+            state = 'FLUENT'
+
+        return ChanStat(state=state,
+                        buffered=self._delivered_buffered,
+                        queued=self._delivered_queued,
+                        immediate=self._delivered_immediate)
 
     async def _pipe_worker(self, out):
         async for v in self:
@@ -1115,6 +1148,9 @@ def tick_tock(seconds, start_at=None, loop=None):
     loop.call_at(start_time, tick)
 
     return c
+
+
+ChanStat = collections.namedtuple('ChanStat', 'state buffered queued immediate')
 
 
 class ChanIterator:
