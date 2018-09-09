@@ -538,7 +538,7 @@ class Chan:
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                       in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
-                      pool_kwargs=None):
+                      pool_kwargs=None, error_cb=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -569,6 +569,7 @@ class Chan:
                           (for example, `torch.multiprocessing` from pytorch).
         :param pool_args: additional arguments when creating pool
         :param pool_kwargs: additional keyword arguments when creating pool
+        :param error_cb: callback in case there is an error
         :return: the output channel.
         """
         if out is None:
@@ -615,7 +616,7 @@ class Chan:
                         break
                     else:
                         data, async_ft = next_item
-                        pool.apply_async(f, (data,), callback=wrap_p_result(out_q, async_ft))
+                        pool.apply_async(f, (data,), callback=wrap_p_result(out_q, async_ft), error_callback=error_cb)
 
         if mode == 'thread':
             threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
@@ -664,7 +665,7 @@ class Chan:
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                                 in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
-                                pool_kwargs=None):
+                                pool_kwargs=None, error_cb=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -692,6 +693,7 @@ class Chan:
                           (for example, `torch.multiprocessing` from pytorch).
         :param pool_args: additional arguments when creating pool
         :param pool_kwargs: additional keyword arguments when creating pool
+        :param error_cb: callback in case there is an error
         :return: the output channel.
         """
         if out is None:
@@ -728,7 +730,7 @@ class Chan:
                         out_q.put(None)
                         break
                     else:
-                        pool.apply_async(f, (next_item,), callback=lambda r: out_q.put(r))
+                        pool.apply_async(f, (next_item,), callback=lambda r: out_q.put(r), error_callback=error_cb)
 
         if mode == 'thread':
             threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
