@@ -543,8 +543,7 @@ class Chan:
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
         The function `f` will be run in a pool executor with parallelism `n`.
-        The results will be put into `out` in an unspecified order: whichever result completes first will be given
-        first.
+        The results will be put into `out` in in the order that their arguments arrive.
 
         Note that even in the presence of GIL, `thread` mode is usually sufficient for achieving the greatest
         parallelism: the overhead is much lower than `process` mode, and many blocking or slow operations (e.g. file
