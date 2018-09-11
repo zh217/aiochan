@@ -81,6 +81,20 @@ We are just starting out, but we will try to answer aiochan-related questions on
 File an [issue](https://github.com/zh217/aiochan/issues/new), or if you think you can solve it, a pull request is even 
 better.
 
+## Do you use it in production? For what use cases?
+
+`aiochan` is definitely not a toy and we do use it in production, mainly in the two following scenarios:
+
+* Complex data-flow in routing.  We integrate aiochan with an asyncio-based web server.
+  This should be easy to understand.
+* Data-preparation piplelines.  We prepare and pre-process data to feed into our machine learning 
+  algorithms as fast as possible so that our algorithms speed no time waiting for data
+  to come in, but no faster than necessary so that we don't have a memory explosion due to
+  data being prepared faster than they can be consumed.  For this we make heavy use of
+  [parallel_pipe](https://aiochan.readthedocs.io/en/latest/api.html#aiochan.channel.Chan.parallel_pipe)
+  and [parallel_pipe_unordered](https://aiochan.readthedocs.io/en/latest/api.html#aiochan.channel.Chan.parallel_pipe_unordered).
+  Currently we are not aware of any other library that can completely satisfy this need of ours.
+
 ## What's up with the logo?
 
 It is our 'hello world' example:
