@@ -987,6 +987,65 @@ class Chan:
 
         return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
 
+    def group(self, n, out=None, buffer=None, buffer_size=None, close=True):
+        """
+        Returns a channel containing the elements of the source channel grouped into batches of size `n` (the last
+        batch may be less than `n`).
+
+        :param n: the size of the batch
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
+        """
+
+        async def worker(inp, o):
+            batched = []
+            async for v in inp:
+                batched.append(v)
+                if len(batched) == n:
+                    await o.put(batched)
+                    batched = []
+            if batched:
+                await o.put(batched)
+            if close:
+                o.close()
+
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
+
+    def group_by(self, f, out=None, buffer=None, buffer_size=None, close=True):
+        """
+        Returns a channel containing `(group_key, [elements...])` where `group_key` is the result of `f` applied to
+        elements of the source channel and `elements ...` are consecutive elements with the same `group_key`.
+
+        :param f: the key function
+        :param out: the output channel. If `None`, one with no buffering will be created.
+        :param buffer: buffer of the internal channel, only applies if out is `None`
+        :param buffer_size: buffer_size of the internal channel, only applies if out is `None`
+        :param close: whether `out` should be closed when there are no more values to be produced.
+        :return: the output channel.
+        """
+
+        async def worker(inp, o):
+            last_key = object()
+            buffered = []
+            async for v in inp:
+                cur_key = f(v)
+                if cur_key == last_key:
+                    buffered.append(v)
+                else:
+                    if buffered:
+                        await o.put((last_key, buffered))
+                    buffered = [v]
+                    last_key = cur_key
+            if buffered:
+                await o.put((last_key, buffered))
+            if close:
+                o.close()
+
+        return self.async_apply(worker, out, buffer=buffer, buffer_size=buffer_size)
+
     def distinct(self, *, out=None, buffer=None, buffer_size=None, close=True):
         """
         Returns a channel containing distinct values from the channel (consecutive duplicates are dropped).

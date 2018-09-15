@@ -699,6 +699,18 @@ async def test_flat_map():
 
 
 @pytest.mark.asyncio
+async def test_group():
+    c = from_range(10).group(3)
+    assert [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]] == await c.collect()
+
+
+@pytest.mark.asyncio
+async def test_group_by():
+    c = from_range(10).group_by(lambda v: v // 3)
+    assert [(0, [0, 1, 2]), (1, [3, 4, 5]), (2, [6, 7, 8]), (3, [9])] == await c.collect()
+
+
+@pytest.mark.asyncio
 async def test_reduce():
     c = from_range(101).reduce(lambda acc, v: acc + v)
     assert 5050 == await c.get()
