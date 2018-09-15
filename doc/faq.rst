@@ -29,3 +29,27 @@ If you like CSP, why don't you use *Golang*/*core.async*/*elixir*/*erlang* ... d
     asyncio is much easier than porting numpy/scipy/scikit-learn/pytorch/tensorflow ... to some other language, or
     finding usable alternative thereof. Coercing libraries to behave well when unsuspectingly manipulated by a foreign
     language is agonizing.
+
+How do I handle exceptions?
+    Unfortunately, in aiochan we assume that whatever goes into channels and comes out of channels won't cause
+    exceptions to be raised during the processing of these values. If your processing functions (for example, those
+    passed into `async_apply` or `parallel_pipe` may raise exceptions, you should catch and handle them in your
+    functions (and maybe return some "exception-values").
+
+    Let me explain why aiochan won't handle exceptions for you. First, when consuming values, we encourage you to
+    use the `async for` syntax::
+
+        async for v in chan:
+            # do some processing
+
+    Now if an exception is thrown when getting values out of `chan`, it is not clear how you can recover the async
+    iteration, even if you catch the exception.
+
+    Another example: say you have some `async_apply` workflow::
+
+        out_chan = in_chan.async_apply(async_f)
+
+    Now for some values, `async_f` raises an exception. Now where should this exception go? `in_chan.put`?
+    `outchan.get`? What happens if there is buffering for `in_chan` or for `out_chan`? What if the buffering is
+    of the sliding or the dropping type? Things get very hairy with exceptions and async processing, so we encourage
+    you to deal with them in the synchronous parts of your code.
