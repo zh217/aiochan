@@ -789,6 +789,15 @@ class Chan:
         """
         Put elements from the channel onto the given queue. Useful for inter-thread communication.
 
+        To be useful at all, this method should be called before running the asyncio loop::
+
+            loop = asyncio.create_new_loop()
+            chan = ac.Chan(loop=loop)
+            q = chan.to_queue()
+            ac.run_in_thread(some_coro(chan))
+
+            # do something with the queue
+
         :param q: the queue.
         :return: the queue `q`.
         """
@@ -813,9 +822,15 @@ class Chan:
         If your workflow consists entirely of operations within the asyncio loop, you should use the channel as an
         async generator directly: ``async for val in ch: ...``.
 
-        This method should be called on the thread that attempts to use the values in the iterable, not on the
-        thread on which operations involving the channel is run. The `loop` argument to the channel
-        **must** be explicitly given, and should be the loop on which the channel is intended to be used.
+        To be useful at all, this method should be called before running the asyncio loop::
+
+            loop = asyncio.create_new_loop()
+            chan = ac.Chan(loop=loop)
+            it = chan.iterable()
+            ac.run_in_thread(some_coro(chan))
+
+            for item in it:
+                # do something with the item
 
         :param buffer_size: buffering between the iterable and the channel.
         :return: the iterable.
