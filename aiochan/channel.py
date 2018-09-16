@@ -7,7 +7,7 @@ import operator
 import queue
 import random
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing.dummy
 
 import janus
 
@@ -538,7 +538,7 @@ class Chan:
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                       in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
-                      pool_kwargs=None, error_cb=None):
+                      pool_kwargs=None, error_cb=lambda x: print(x)):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -585,27 +585,15 @@ class Chan:
 
         results_chan = Chan(n, loop=self.loop)
 
-        def wrap_result(q, a_ft):
-            return lambda rft: q.put((rft.result(), a_ft))
-
-        def thread_worker(in_q, out_q):
-            executor = ThreadPoolExecutor(max_workers=n, *pool_args, **pool_kwargs)
-            while True:
-                next_item = in_q.get()
-                if next_item is None:
-                    executor.shutdown(wait=True)
-                    out_q.put(None)
-                    break
-                else:
-                    data, async_ft = next_item
-                    ft = executor.submit(f, data)
-                    ft.add_done_callback(wrap_result(out_q, async_ft))
-
         def wrap_p_result(q, a_ft):
             return lambda r: q.put((r, a_ft))
 
         def process_worker(in_q, out_q):
-            with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:
+            if mode == 'thread':
+                Pool = multiprocessing.dummy.Pool
+            else:
+                Pool = mp_module.Pool
+            with Pool(n, *pool_args, **pool_kwargs) as pool:
                 while True:
                     next_item = in_q.get()
                     if next_item is None:
@@ -617,10 +605,7 @@ class Chan:
                         data, async_ft = next_item
                         pool.apply_async(f, (data,), callback=wrap_p_result(out_q, async_ft), error_callback=error_cb)
 
-        if mode == 'thread':
-            threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
-        elif mode == 'process':
-            threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
         in_flight = asyncio.Semaphore(n, loop=self.loop)
 
@@ -664,7 +649,7 @@ class Chan:
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                                 in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
-                                pool_kwargs=None, error_cb=None):
+                                pool_kwargs=None, error_cb=lambda x: print(x)):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -707,20 +692,12 @@ class Chan:
         if pool_kwargs is None:
             pool_kwargs = {}
 
-        def thread_worker(in_q, out_q):
-            executor = ThreadPoolExecutor(max_workers=n, *pool_args, **pool_kwargs)
-            while True:
-                next_item = in_q.get()
-                if next_item is None:
-                    executor.shutdown(wait=True)
-                    out_q.put(None)
-                    break
-                else:
-                    ft = executor.submit(f, next_item)
-                    ft.add_done_callback(lambda rft: out_q.put(rft.result()))
-
         def process_worker(in_q, out_q):
-            with mp_module.Pool(n, *pool_args, **pool_kwargs) as pool:
+            if mode == 'thread':
+                Pool = multiprocessing.dummy.Pool
+            else:
+                Pool = mp_module.Pool
+            with Pool(n, *pool_args, **pool_kwargs) as pool:
                 while True:
                     next_item = in_q.get()
                     if next_item is None:
@@ -731,10 +708,7 @@ class Chan:
                     else:
                         pool.apply_async(f, (next_item,), callback=lambda r: out_q.put(r), error_callback=error_cb)
 
-        if mode == 'thread':
-            threading.Thread(target=thread_worker, args=(in_q.sync_q, out_q.sync_q)).start()
-        elif mode == 'process':
-            threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
 
         in_flight = asyncio.Semaphore(n, loop=self.loop)
 
