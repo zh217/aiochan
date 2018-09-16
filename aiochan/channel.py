@@ -826,7 +826,7 @@ class Chan:
 
             loop = asyncio.create_new_loop()
             chan = ac.Chan(loop=loop)
-            it = chan.iterable()
+            it = chan.to_iterable()
             ac.run_in_thread(some_coro(chan), loop=loop)
 
             for item in it:
