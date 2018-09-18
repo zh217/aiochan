@@ -534,7 +534,7 @@ class Chan:
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                       mode='process', mp_module=multiprocessing, pool_args=None,
-                      pool_kwargs=None, error_cb=None):
+                      pool_kwargs=None, error_cb=None, pool_buffer=1):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -563,6 +563,7 @@ class Chan:
         :param pool_args: additional arguments when creating pool
         :param pool_kwargs: additional keyword arguments when creating pool
         :param error_cb: callback in case there is an error
+        :param pool_buffer: the number of jobs that can be over-committed to the pool
         :return: the output channel.
         """
         if out is None:
@@ -589,15 +590,11 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n, loop=self.loop)
+        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(ft):
             def wrapped(r):
-                def put_and_release():
-                    in_flight.release()
-                    ft.set_result(r)
-
-                self.loop.call_soon_threadsafe(put_and_release)
+                self.loop.call_soon_threadsafe(ft.set_result, r)
 
             return wrapped
 
@@ -608,7 +605,7 @@ class Chan:
                 pool.apply_async(f, (data,), callback=complete_callback(ft), error_callback=error_cb)
                 await results_chan.put(ft)
 
-            for i in range(n):
+            for i in range(n + pool_buffer):
                 await in_flight.acquire()
             pool.close()
             results_chan.close()
@@ -621,6 +618,7 @@ class Chan:
                         await out.put(data)
                 else:
                     await out.put(item)
+                in_flight.release()
             if close:
                 out.close()
 
@@ -631,7 +629,7 @@ class Chan:
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                                 mode='process', mp_module=multiprocessing, pool_args=None,
-                                pool_kwargs=None, error_cb=None):
+                                pool_kwargs=None, error_cb=None, pool_buffer=1):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -658,6 +656,7 @@ class Chan:
         :param pool_args: additional arguments when creating pool
         :param pool_kwargs: additional keyword arguments when creating pool
         :param error_cb: callback in case there is an error
+        :param pool_buffer: the number of jobs that can be over-committed to the pool
         :return: the output channel.
         """
         if out is None:
@@ -682,25 +681,27 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n, loop=self.loop)
+        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(r):
-            in_flight.release()
             if flatten:
-                for item in r:
+                for item in r[:-1]:
                     out.put_nowait(item, immediate_only=False)
+                out.put_nowait(r[-1], immediate_only=False, cb=lambda _: in_flight.release())
             else:
-                out.put_nowait(r, immediate_only=False)
+                out.put_nowait(r, immediate_only=False, cb=lambda _: in_flight.release())
 
         async def pipe_in_worker():
             async for data in self:
                 await in_flight.acquire()
                 pool.apply_async(f, (data,), callback=lambda r: self.loop.call_soon_threadsafe(complete_callback, r),
                                  error_callback=error_cb)
-            for i in range(n):
-                await in_flight.acquire()
+
             pool.close()
+
             if close:
+                for i in range(n + pool_buffer):
+                    await in_flight.acquire()
                 out.close()
 
         self.loop.create_task(pipe_in_worker())
