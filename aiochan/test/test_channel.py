@@ -532,7 +532,7 @@ async def test_parallel_pipe():
     def work(n):
         return n * 2
 
-    c.parallel_pipe(10, work, d)
+    c.parallel_pipe(5, work, d, mode='thread')
 
     assert list(range(0, 20, 2)) == await d.collect()
 
@@ -545,7 +545,7 @@ async def test_parallel_flat_pipe():
     def work(n):
         return [n * 2]
 
-    c.parallel_pipe(10, work, d, flatten=True)
+    c.parallel_pipe(10, work, d, flatten=True, mode='thread')
 
     assert list(range(0, 20, 2)) == await d.collect()
 
@@ -558,7 +558,7 @@ async def test_parallel_pipe_big():
     def work(n):
         return n * 2
 
-    c.parallel_pipe(2, work, d)
+    c.parallel_pipe(2, work, d, mode='thread')
     assert list(range(0, 200, 2)) == await d.collect()
 
 
@@ -571,7 +571,7 @@ async def test_parallel_pipe_unordered():
         time.sleep(random.uniform(0, 0.05))
         return n * 2
 
-    c.parallel_pipe_unordered(10, work, d)
+    c.parallel_pipe_unordered(10, work, d, mode='thread')
 
     assert set(range(0, 20, 2)) == set(await d.collect())
 
@@ -585,7 +585,7 @@ async def test_parallel_flat_pipe_unordered():
         time.sleep(random.uniform(0, 0.05))
         return [n * 2]
 
-    c.parallel_pipe_unordered(10, work, d, flatten=True)
+    c.parallel_pipe_unordered(10, work, d, flatten=True, mode='thread')
 
     assert set(range(0, 20, 2)) == set(await d.collect())
 
@@ -599,7 +599,7 @@ async def test_parallel_pipe_unordered_big():
         time.sleep(random.uniform(0, 0.0001))
         return n * 2
 
-    c.parallel_pipe_unordered(2, work, d)
+    c.parallel_pipe_unordered(2, work, d, mode='thread')
     assert set(range(0, 200, 2)) == set(await d.collect())
 
 
@@ -677,7 +677,7 @@ async def test_fake_initializer():
             _local_data.process = lambda x: x * 2
         return _local_data.count, _local_data.process(n)
 
-    c.parallel_pipe(10, work, d)
+    c.parallel_pipe(10, work, d, mode='thread')
     r = await d.collect(100)
     rv = [v[1] for v in r]
     rc = sum(v[0] for v in r)
@@ -842,12 +842,6 @@ def test_without_asyncio():
 
     assert (put_chan is c and get_val == 1) or (put_chan is d and get_val == 2)
 
-
-# note about parallel_pipe and mode='process':
-# the following tests depends on running ProcessPoolExecutor in tandem with asyncio loop.
-# these are brittle, and whether they pass or not depends on how the tests are run.
-# since the logic is the same with mode='thread', we do not automatically run them.
-# not to mention that they are painfully slow on Windows.
 
 _p_local_data = threading.local()
 

@@ -2,14 +2,12 @@ import asyncio
 import collections
 import itertools
 import multiprocessing
+import multiprocessing.dummy
 import numbers
 import operator
 import queue
 import random
 import threading
-import multiprocessing.dummy
-
-import janus
 
 from . import buffers
 from ._util import FnHandler, SelectFlag, SelectHandler
@@ -537,7 +535,7 @@ class Chan:
         return out
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
-                      in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
+                      mode='process', mp_module=multiprocessing, pool_args=None,
                       pool_kwargs=None, error_cb=lambda x: print(x)):
 
         """
@@ -562,8 +560,6 @@ class Chan:
         :param close: whether to close the output channel when the input channel is closed.
         :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
                onto the output channel instead
-        :param in_q_size: buffering of the queue from the asyncio-world to the worker-world
-        :param out_q_size: buffering of the queue from the worker-world to the asyncio-world
         :param mp_module: when `mode='process'`, you can optionally pass in a compatible multiprocessing module
                           (for example, `torch.multiprocessing` from pytorch).
         :param pool_args: additional arguments when creating pool
@@ -574,9 +570,6 @@ class Chan:
         if out is None:
             out = Chan(buffer, buffer_size)
 
-        in_q = janus.Queue(maxsize=in_q_size, loop=self.loop)
-        out_q = janus.Queue(maxsize=out_q_size, loop=self.loop)
-
         if pool_args is None:
             pool_args = ()
 
@@ -585,50 +578,35 @@ class Chan:
 
         results_chan = Chan(n, loop=self.loop)
 
-        def wrap_p_result(q, a_ft):
-            return lambda r: q.put((r, a_ft))
-
-        def process_worker(in_q, out_q):
-            if mode == 'thread':
-                Pool = multiprocessing.dummy.Pool
-            else:
-                Pool = mp_module.Pool
-            with Pool(n, *pool_args, **pool_kwargs) as pool:
-                while True:
-                    next_item = in_q.get()
-                    if next_item is None:
-                        pool.close()
-                        pool.join()
-                        out_q.put(None)
-                        break
-                    else:
-                        data, async_ft = next_item
-                        pool.apply_async(f, (data,), callback=wrap_p_result(out_q, async_ft), error_callback=error_cb)
-
-        threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        if mode == 'thread':
+            Pool = multiprocessing.dummy.Pool
+        else:
+            Pool = mp_module.Pool
+        pool = Pool(n, *pool_args, **pool_kwargs)
 
         in_flight = asyncio.Semaphore(n, loop=self.loop)
 
-        async def pipe_in_worker(q):
-            while True:
-                data = await self.get()
+        def complete_callback(ft):
+            def wrapped(r):
+                def put_and_release():
+                    in_flight.release()
+                    ft.set_result(r)
+
+                self.loop.call_soon_threadsafe(put_and_release)
+
+            return wrapped
+
+        async def pipe_in_worker():
+            async for data in self:
                 await in_flight.acquire()
-                if data is None:
-                    await q.put(None)
-                    results_chan.close()
-                    break
                 ft = self.loop.create_future()
-                await q.put((data, ft))
+                pool.apply_async(f, (data,), callback=complete_callback(ft), error_callback=error_cb)
                 await results_chan.put(ft)
 
-        async def pipe_out_worker(q):
-            while True:
-                next_item = await q.get()
-                in_flight.release()
-                if next_item is None:
-                    break
-                data, async_ft = next_item
-                async_ft.set_result(data)
+            for i in range(n):
+                await in_flight.acquire()
+            pool.close()
+            results_chan.close()
 
         async def order_out_worker():
             async for async_ft in results_chan:
@@ -641,14 +619,13 @@ class Chan:
             if close:
                 out.close()
 
-        self.loop.create_task(pipe_in_worker(in_q.async_q))
-        self.loop.create_task(pipe_out_worker(out_q.async_q))
+        self.loop.create_task(pipe_in_worker())
         self.loop.create_task(order_out_worker())
 
         return out
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
-                                in_q_size=0, out_q_size=0, mode='thread', mp_module=multiprocessing, pool_args=None,
+                                mode='process', mp_module=multiprocessing, pool_args=None,
                                 pool_kwargs=None, error_cb=lambda x: print(x)):
 
         """
@@ -671,8 +648,6 @@ class Chan:
         :param close: whether to close the output channel when the input channel is closed.
         :param flatten: if `True`, assume `f` returns sequence and puts individual elements of the sequence
                onto the output channel instead
-        :param in_q_size: buffering of the queue from the asyncio-world to the worker-world
-        :param out_q_size: buffering of the queue from the worker-world to the asyncio-world
         :param mp_module: when `mode='process'`, you can optionally pass in a compatible multiprocessing module
                           (for example, `torch.multiprocessing` from pytorch).
         :param pool_args: additional arguments when creating pool
@@ -683,59 +658,40 @@ class Chan:
         if out is None:
             out = Chan(buffer, buffer_size)
 
-        in_q = janus.Queue(maxsize=in_q_size, loop=self.loop)
-        out_q = janus.Queue(maxsize=out_q_size, loop=self.loop)
-
         if pool_args is None:
             pool_args = ()
 
         if pool_kwargs is None:
             pool_kwargs = {}
 
-        def process_worker(in_q, out_q):
-            if mode == 'thread':
-                Pool = multiprocessing.dummy.Pool
-            else:
-                Pool = mp_module.Pool
-            with Pool(n, *pool_args, **pool_kwargs) as pool:
-                while True:
-                    next_item = in_q.get()
-                    if next_item is None:
-                        pool.close()
-                        pool.join()
-                        out_q.put(None)
-                        break
-                    else:
-                        pool.apply_async(f, (next_item,), callback=lambda r: out_q.put(r), error_callback=error_cb)
-
-        threading.Thread(target=process_worker, args=(in_q.sync_q, out_q.sync_q)).start()
+        if mode == 'thread':
+            Pool = multiprocessing.dummy.Pool
+        else:
+            Pool = mp_module.Pool
+        pool = Pool(n, *pool_args, **pool_kwargs)
 
         in_flight = asyncio.Semaphore(n, loop=self.loop)
 
-        async def pipe_in_worker(q):
-            while True:
-                data = await self.get()
+        def complete_callback(r):
+            in_flight.release()
+            if flatten:
+                for item in r:
+                    out.put_nowait(item, immediate_only=False)
+            else:
+                out.put_nowait(r, immediate_only=False)
+
+        async def pipe_in_worker():
+            async for data in self:
                 await in_flight.acquire()
-                await q.put(data)
-                if data is None:
-                    break
+                pool.apply_async(f, (data,), callback=lambda r: self.loop.call_soon_threadsafe(complete_callback, r),
+                                 error_callback=error_cb)
+            for i in range(n):
+                await in_flight.acquire()
+            pool.close()
+            if close:
+                out.close()
 
-        async def pipe_out_worker(q):
-            while True:
-                data = await q.get()
-                in_flight.release()
-                if data is None:
-                    if close:
-                        out.close()
-                    break
-                if flatten:
-                    for item in data:
-                        await out.put(item)
-                else:
-                    await out.put(data)
-
-        self.loop.create_task(pipe_in_worker(in_q.async_q))
-        self.loop.create_task(pipe_out_worker(out_q.async_q))
+        self.loop.create_task(pipe_in_worker())
 
         return out
 

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='aiochan',
-    version='0.2.5',
+    version='0.2.6',
     packages=find_packages(),
     platforms='any',
     classifiers=[
@@ -13,7 +13,7 @@ setup(
     ],
     license='Apache',
     python_requires='>=3.5.3',
-    install_requires=['janus'],
+    install_requires=[],
     setup_requires=['pytest-runner'],
     tests_require=['pytest', 'pytest-asyncio'],
     author='Ziyang Hu',
