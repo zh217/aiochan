@@ -534,7 +534,7 @@ class Chan:
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                       mode='process', mp_module=multiprocessing, pool_args=None,
-                      pool_kwargs=None, error_cb=None, pool_buffer=1):
+                      pool_kwargs=None, error_cb=None, pool_buffer=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -581,6 +581,12 @@ class Chan:
                     raise err
 
                 self.loop.call_soon_threadsafe(reraise)
+
+        if pool_buffer is None:
+            if flatten:
+                pool_buffer = 0
+            else:
+                pool_buffer = 1
 
         results_chan = Chan(n, loop=self.loop)
 
@@ -629,7 +635,7 @@ class Chan:
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                                 mode='process', mp_module=multiprocessing, pool_args=None,
-                                pool_kwargs=None, error_cb=None, pool_buffer=1):
+                                pool_kwargs=None, error_cb=None, pool_buffer=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -674,6 +680,12 @@ class Chan:
                     raise err
 
                 self.loop.call_soon_threadsafe(reraise)
+
+        if pool_buffer is None:
+            if flatten:
+                pool_buffer = 0
+            else:
+                pool_buffer = 1
 
         if mode == 'thread':
             Pool = multiprocessing.dummy.Pool
