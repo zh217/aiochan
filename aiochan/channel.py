@@ -59,8 +59,6 @@ class Chan:
             :meth:`aiochan.channel.Chan.put_nowait`.
     :param name: used to provide more friendly debugging outputs.
     """
-    __slots__ = ('loop', '_buf', '_gets', '_puts', '_closed', '_dirty_puts', '_dirty_gets', '_name', '_close_event',
-                 '_delivered_immediate', '_delivered_buffered', '_delivered_queued')
 
     _count = 0
 
@@ -536,7 +534,7 @@ class Chan:
 
     def parallel_pipe(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                       mode='process', mp_module=multiprocessing, pool_args=None,
-                      pool_kwargs=None, error_cb=lambda x: print(x)):
+                      pool_kwargs=None, error_cb=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -575,6 +573,13 @@ class Chan:
 
         if pool_kwargs is None:
             pool_kwargs = {}
+
+        if error_cb is None:
+            def error_cb(err):
+                def reraise():
+                    raise err
+
+                self.loop.call_soon_threadsafe(reraise)
 
         results_chan = Chan(n, loop=self.loop)
 
@@ -626,7 +631,7 @@ class Chan:
 
     def parallel_pipe_unordered(self, n, f, out=None, buffer=None, buffer_size=None, close=True, flatten=False,
                                 mode='process', mp_module=multiprocessing, pool_args=None,
-                                pool_kwargs=None, error_cb=lambda x: print(x)):
+                                pool_kwargs=None, error_cb=None):
 
         """
         Apply the plain function `f` to each value in the channel, and pipe the results to `out`.
@@ -663,6 +668,13 @@ class Chan:
 
         if pool_kwargs is None:
             pool_kwargs = {}
+
+        if error_cb is None:
+            def error_cb(err):
+                def reraise():
+                    raise err
+
+                self.loop.call_soon_threadsafe(reraise)
 
         if mode == 'thread':
             Pool = multiprocessing.dummy.Pool
@@ -737,7 +749,10 @@ class Chan:
                 q.put(v)
             q.put(None)
 
-        self.loop.create_task(worker())
+        def make_task():
+            self.loop.create_task(worker())
+
+        self.loop.call_soon_threadsafe(make_task)
 
         return q
 
@@ -1160,7 +1175,6 @@ ChanStat = collections.namedtuple('ChanStat', 'state buffered queued immediate')
 
 
 class ChanIterator:
-    __slots__ = ('_chan',)
 
     def __init__(self, chan):
         self._chan = chan
@@ -1415,8 +1429,6 @@ class Dup:
     :param inp: the input channel
     """
 
-    __slots__ = ('_in', '_outs', '_close_chan')
-
     def __init__(self, inp):
         self._in = inp
         self._outs = {}
@@ -1508,8 +1520,6 @@ class Pub:
                    values are the same as for the constructor of :meth:`aiochan.channel.Chan`.
     :param buffer_size: see above
     """
-
-    __slots__ = ('_mults', '_buffer', '_buffer_size')
 
     def __init__(self, inp, *, topic_fn=operator.itemgetter(0), buffer=None, buffer_size=None):
         self._buffer = buffer
