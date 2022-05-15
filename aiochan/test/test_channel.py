@@ -821,6 +821,18 @@ def test_run():
     assert run(afunc()) == 1
 
 
+def test_run__cancel_tasks():
+    c = Chan()
+    async def atask():
+        await c.get()
+
+    async def afunc():
+        return 1
+
+    go(atask())
+    assert run(afunc()) == 1
+
+
 def test_without_asyncio():
     c = Chan(1, loop='no_loop')
     d = Chan(1, loop='no_loop')
