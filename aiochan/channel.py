@@ -7,6 +7,7 @@ import numbers
 import operator
 import queue
 import random
+import sys
 import threading
 
 from . import buffers
@@ -74,7 +75,10 @@ class Chan:
             self._close_event = None
         else:
             self.loop = loop or asyncio.get_event_loop()
-            self._close_event = asyncio.Event(loop=loop)
+            if sys.version_info >= (3, 8):
+                self._close_event = asyncio.Event()
+            else:
+                self._close_event = asyncio.Event(loop=loop)
         try:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
@@ -596,7 +600,10 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
+        if sys.version_info >= (3, 8):
+            in_flight = asyncio.Semaphore(n + pool_buffer)
+        else:
+            in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(ft):
             def wrapped(r):
@@ -693,7 +700,10 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
+        if sys.version_info >= (3, 8):
+            in_flight = asyncio.Semaphore(n + pool_buffer)
+        else:
+            in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(r):
             if flatten:
