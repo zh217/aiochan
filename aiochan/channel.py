@@ -7,6 +7,7 @@ import numbers
 import operator
 import queue
 import random
+import sys
 import threading
 
 from . import buffers
@@ -74,7 +75,10 @@ class Chan:
             self._close_event = None
         else:
             self.loop = loop or asyncio.get_event_loop()
-            self._close_event = asyncio.Event(loop=loop)
+            if sys.version_info >= (3, 8):
+                self._close_event = asyncio.Event()
+            else:
+                self._close_event = asyncio.Event(loop=loop)
         try:
             self._buf = _buf_types[buffer](buffer_size)
         except KeyError:
@@ -596,7 +600,10 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
+        if sys.version_info >= (3, 8):
+            in_flight = asyncio.Semaphore(n + pool_buffer)
+        else:
+            in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(ft):
             def wrapped(r):
@@ -693,7 +700,10 @@ class Chan:
             Pool = mp_module.Pool
         pool = Pool(n, *pool_args, **pool_kwargs)
 
-        in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
+        if sys.version_info >= (3, 8):
+            in_flight = asyncio.Semaphore(n + pool_buffer)
+        else:
+            in_flight = asyncio.Semaphore(n + pool_buffer, loop=self.loop)
 
         def complete_callback(r):
             if flatten:
@@ -1679,8 +1689,14 @@ def run(coro, loop=None):
     def runner():
         result = loop.run_until_complete(coro)
         ft.set_result(result)
-        for task in asyncio.Task.all_tasks(loop=loop):
+        if sys.version_info >= (3, 7):
+            all_tasks = asyncio.all_tasks(loop=loop)
+        else:
+            all_tasks = asyncio.Task.all_tasks(loop=loop)
+
+        for task in all_tasks:
             task.cancel()
+
         time.sleep(0.1)
 
     thread = threading.Thread(target=runner)
